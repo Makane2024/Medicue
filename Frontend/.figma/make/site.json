@@ -1,4 +1,5 @@
 {
+  "title": "MediCue",
   "description": "Streamline healthcare appointments with a cloud-based platform for patients, doctors, and hospital administrators to manage bookings, availability, and notifications.",
   "robots": {
     "index": false
