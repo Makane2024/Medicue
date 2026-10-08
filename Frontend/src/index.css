@@ -1,0 +1,246 @@
+@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500&display=swap');
+@import 'tailwindcss';
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+@theme inline {
+  --font-sans: 'Plus Jakarta Sans', ui-sans-serif, system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, monospace;
+  --color-canvas: var(--c-canvas);
+  --color-mist: var(--c-mist);
+  --color-surface: var(--c-surface);
+  --color-ink: var(--c-ink);
+  --color-muted: var(--c-muted);
+  --color-brand: var(--c-brand);
+  --color-brand-deep: var(--c-brand-deep);
+  --color-brand-soft: var(--c-brand-soft);
+}
+
+:root {
+  --c-canvas: #dfe4f5;
+  --c-mist: #eef1fb;
+  --c-surface: #ffffff;
+  --c-ink: #12152b;
+  --c-muted: #6b7190;
+  --c-brand: #3b6be0;
+  --c-brand-deep: #2a52c4;
+  --c-brand-soft: #cfdbfa;
+  --glow-a: #f1f3fc;
+  --glow-b: #cfd8f5;
+  color-scheme: light;
+}
+:root[data-accent='teal'] {
+  --c-brand: #0f9b8e;
+  --c-brand-deep: #0b7a70;
+  --c-brand-soft: #c4ece6;
+  --c-canvas: #dcefed;
+  --glow-b: #c3e6e1;
+}
+:root[data-accent='violet'] {
+  --c-brand: #7457e0;
+  --c-brand-deep: #5b3fc8;
+  --c-brand-soft: #ddd3fb;
+  --c-canvas: #e6e1f6;
+  --glow-b: #d8cff5;
+}
+:root[data-accent='rose'] {
+  --c-brand: #e0507a;
+  --c-brand-deep: #c23a62;
+  --c-brand-soft: #fad3df;
+  --c-canvas: #f4e2e8;
+  --glow-b: #f3cfda;
+}
+
+.dark {
+  --c-canvas: #0d1020;
+  --c-mist: #1b2038;
+  --c-surface: #151a2e;
+  --c-ink: #e8ebf7;
+  --c-muted: #8e95b5;
+  --c-brand-soft: color-mix(in oklab, var(--c-brand) 28%, #151a2e);
+  --glow-a: #161b33;
+  --glow-b: color-mix(in oklab, var(--c-brand) 22%, #0d1020);
+  color-scheme: dark;
+}
+.dark[data-accent] {
+  --c-canvas: #0d1020;
+}
+.dark .text-brand-deep {
+  color: color-mix(in oklab, var(--c-brand) 55%, white);
+}
+
+/* The signed-in workspace (Shell sets data-shell) scales smoothly on big monitors: 16px up to 1440px wide,
+   about 18px at 1920px, 22px at most. The sign-in page keeps its fixed size, and the "larger text" setting below wins. */
+:root[data-shell] {
+  font-size: clamp(16px, calc(16px + (100vw - 1440px) * 0.005), 22px);
+}
+:root[data-text='large'] {
+  font-size: 17.5px;
+}
+:root[data-motion='reduce'] *,
+:root[data-motion='reduce'] *::before {
+  animation: none !important;
+  transition: none !important;
+}
+
+body {
+  background:
+    radial-gradient(900px 500px at 0% 0%, var(--glow-a) 0%, transparent 60%),
+    radial-gradient(800px 600px at 100% 100%, var(--glow-b) 0%, transparent 60%), var(--color-canvas);
+  background-attachment: fixed;
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+  transition:
+    background-color 0.3s,
+    color 0.3s;
+}
+
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+.animate-rise {
+  animation: rise 0.35s cubic-bezier(0.2, 0.7, 0.2, 1) both;
+}
+@media (prefers-reduced-motion: reduce) {
+  .animate-rise {
+    animation: none;
+  }
+}
+::selection {
+  background: var(--color-brand-soft);
+}
+
+@keyframes float {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-8px);
+  }
+}
+.animate-float {
+  animation: float 6s ease-in-out infinite;
+}
+@keyframes trace {
+  from {
+    stroke-dashoffset: 400;
+  }
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+.animate-trace {
+  stroke-dasharray: 400;
+  animation: trace 3.2s cubic-bezier(0.6, 0, 0.3, 1) infinite;
+}
+@keyframes ping-soft {
+  0% {
+    transform: scale(1);
+    opacity: 0.6;
+  }
+  100% {
+    transform: scale(2.4);
+    opacity: 0;
+  }
+}
+.animate-ping-soft {
+  animation: ping-soft 2s ease-out infinite;
+}
+
+/* staggered entrance: siblings rise one after another */
+.animate-rise:nth-child(2) {
+  animation-delay: 50ms;
+}
+.animate-rise:nth-child(3) {
+  animation-delay: 100ms;
+}
+.animate-rise:nth-child(4) {
+  animation-delay: 150ms;
+}
+.animate-rise:nth-child(5) {
+  animation-delay: 200ms;
+}
+.animate-rise:nth-child(6) {
+  animation-delay: 250ms;
+}
+.animate-rise:nth-child(n + 7) {
+  animation-delay: 300ms;
+}
+
+@keyframes drift {
+  0%,
+  100% {
+    transform: translate(0, 0) scale(1);
+  }
+  33% {
+    transform: translate(40px, -30px) scale(1.08);
+  }
+  66% {
+    transform: translate(-30px, 20px) scale(0.95);
+  }
+}
+.animate-drift {
+  animation: drift 22s ease-in-out infinite;
+}
+@keyframes shimmer {
+  from {
+    transform: translateX(-120%) skewX(-20deg);
+  }
+  to {
+    transform: translateX(320%) skewX(-20deg);
+  }
+}
+.animate-shimmer {
+  animation: shimmer 4.5s ease-in-out infinite;
+}
+@keyframes travel {
+  0% {
+    top: 0;
+    opacity: 0;
+  }
+  10%,
+  90% {
+    opacity: 1;
+  }
+  100% {
+    top: 100%;
+    opacity: 0;
+  }
+}
+.animate-travel {
+  animation: travel 4s ease-in-out infinite;
+}
+@keyframes beat {
+  0%,
+  100% {
+    transform: scale(1);
+  }
+  15% {
+    transform: scale(1.15);
+  }
+  30% {
+    transform: scale(1);
+  }
+  45% {
+    transform: scale(1.1);
+  }
+}
+.animate-beat {
+  animation: beat 2.4s ease-in-out infinite;
+}
+@keyframes spin-slow {
+  to {
+    transform: rotate(360deg);
+  }
+}
+.animate-spin-slow {
+  animation: spin-slow 18s linear infinite;
+}
