@@ -1,6 +1,10 @@
-import { CognitoIdentityProviderClient, InitiateAuthCommand } from '@aws-sdk/client-cognito-identity-provider';
+import {
+  AdminSetUserPasswordCommand,
+  CognitoIdentityProviderClient,
+  InitiateAuthCommand,
+} from '@aws-sdk/client-cognito-identity-provider';
 import { HttpError, parseBody, respond, withErrorHandling } from './lib/http';
-import { requireEmail, requireString } from './lib/validation';
+import { requireEmail, requirePasswordHash, requireString } from './lib/validation';
 
 const cognitoClient = new CognitoIdentityProviderClient({});
 
@@ -8,6 +12,11 @@ export const handler = withErrorHandling(async (event) => {
   const body = parseBody(event);
   const email = requireEmail(body);
   const password = requireString(body, 'password', { max: 256 });
+  // Accounts created before passwords were hashed in the browser still have their raw password in Cognito. The client
+  // retries with it once, together with the hash it should become; after a successful sign-in the password is replaced
+  // by that hash, so the raw one is sent at most once per account. Switch off with `-c allowLegacyLogin=false`.
+  const upgradeTo = body.upgradeTo === undefined ? undefined : requirePasswordHash(body, 'upgradeTo');
+  if (upgradeTo && process.env.ALLOW_LEGACY_LOGIN !== 'true') throw new HttpError(401, 'Incorrect email or password');
 
   let result;
   try {
@@ -39,10 +48,25 @@ export const handler = withErrorHandling(async (event) => {
   const auth = result.AuthenticationResult;
   if (!auth) return respond(401, { message: 'Login could not be completed' });
 
+  if (upgradeTo) {
+    try {
+      await cognitoClient.send(
+        new AdminSetUserPasswordCommand({
+          UserPoolId: process.env.USER_POOL_ID,
+          Username: email,
+          Password: upgradeTo,
+          Permanent: true,
+        })
+      );
+    } catch (err) {
+      // The sign-in itself succeeded; the next one tries the upgrade again.
+      console.error('Password upgrade failed', err);
+    }
+  }
+
+  // Only the ID token goes to the browser: it is the one the API's authorizer checks. The access and refresh
+  // tokens are never needed by the client, so they are not handed out.
   return respond(200, {
     idToken: auth.IdToken,
-    accessToken: auth.AccessToken,
-    refreshToken: auth.RefreshToken,
-    expiresIn: auth.ExpiresIn,
   });
 });

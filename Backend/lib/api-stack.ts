@@ -2,6 +2,7 @@ import * as cdk from 'aws-cdk-lib';
 import * as cognito from 'aws-cdk-lib/aws-cognito';
 import * as dynamodb from 'aws-cdk-lib/aws-dynamodb';
 import * as s3 from 'aws-cdk-lib/aws-s3';
+import * as secretsmanager from 'aws-cdk-lib/aws-secretsmanager';
 import * as sqs from 'aws-cdk-lib/aws-sqs';
 import * as events from 'aws-cdk-lib/aws-events';
 import * as eventTargets from 'aws-cdk-lib/aws-events-targets';
@@ -148,6 +149,23 @@ export class ApiStack extends cdk.Stack {
       comparisonOperator: cloudwatch.ComparisonOperator.GREATER_THAN_OR_EQUAL_TO_THRESHOLD,
     });
 
+    // Credentials of the third-party SMS service (Twilio). CDK creates the secret with a generated placeholder
+    // `authToken` and empty `accountSid` / `from`; while those are empty SMS keeps going out through SNS. Put the real
+    // values in with:
+    //   aws secretsmanager put-secret-value --secret-id medicue/sms-provider     //     --secret-string '{"provider":"twilio","accountSid":"AC...","authToken":"...","from":"+1..."}'
+    // CDK never overwrites them afterwards, and only the notification worker may read the secret.
+    const smsProviderSecret = new secretsmanager.Secret(this, 'SmsProviderSecret', {
+      secretName: 'medicue/sms-provider',
+      description: 'Credentials of the third-party SMS service used by the notification worker',
+      generateSecretString: {
+        secretStringTemplate: JSON.stringify({ provider: 'twilio', accountSid: '', from: '' }),
+        generateStringKey: 'authToken',
+        excludePunctuation: true,
+        passwordLength: 32,
+      },
+      removalPolicy: cdk.RemovalPolicy.RETAIN,
+    });
+
     const notificationWorkerFunction = createFunction(
       'NotificationWorkerFunction',
       'notification-worker',
@@ -155,9 +173,11 @@ export class ApiStack extends cdk.Stack {
         USERS_TABLE_NAME: T.users,
         NOTIFICATIONS_TABLE_NAME: T.notifications,
         SES_FROM_ADDRESS: process.env.SES_FROM_ADDRESS || 'no-reply@example.com',
+        SMS_SECRET_ARN: smsProviderSecret.secretArn, // the credentials themselves are read from Secrets Manager at run time
       },
       { timeoutSeconds: 20 }
     );
+    smsProviderSecret.grantRead(notificationWorkerFunction);
     props.usersTable.grantReadData(notificationWorkerFunction);
     props.notificationsTable.grantReadWriteData(notificationWorkerFunction);
     notificationWorkerFunction.addEventSource(new SqsEventSource(notificationQueue, { batchSize: 1 }));
@@ -267,7 +287,11 @@ export class ApiStack extends cdk.Stack {
 
     const loginFunction = createFunction('LoginFunction', 'login', {
       USER_POOL_CLIENT_ID: this.userPoolClient.userPoolClientId,
+      USER_POOL_ID: this.userPool.userPoolId,
+      // Lets accounts that still have a raw password sign in once and move to the hashed one (see lambda/login.ts).
+      ALLOW_LEGACY_LOGIN: String(this.node.tryGetContext('allowLegacyLogin') ?? 'true'),
     });
+    this.userPool.grant(loginFunction, 'cognito-idp:AdminSetUserPassword');
 
     const newPasswordFunction = createFunction('NewPasswordFunction', 'new-password', {
       USER_POOL_CLIENT_ID: this.userPoolClient.userPoolClientId,

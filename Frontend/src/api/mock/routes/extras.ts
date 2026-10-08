@@ -14,7 +14,8 @@ export const extraRoutes: RouteMap = {
     for (const k of ['firstName', 'lastName', 'photo'] as const) if (b[k] !== undefined) (u as any)[k] = b[k]
     if (typeof b.phone === 'string' && b.phone.trim()) u.phone = b.phone // an empty phone means "unchanged"
     if (u.role === 'DOCTOR' && b.bio !== undefined) u.bio = b.bio
-    return u
+    const { password, confirmed, tempPassword, suspended, userId, ...profile } = u as any // as the backend: no credentials, no own id
+    return profile
   },
   'POST /users/report': ({ b }) => {
     const u = db.users.find((x) => x.userId === b.userId)
@@ -27,7 +28,12 @@ export const extraRoutes: RouteMap = {
   },
   'GET /users/reported': () => {
     need('PLATFORM_ADMIN')
-    return { users: db.users.filter((u) => (u.reportCount ?? 0) > 0).sort((a, b) => b.reportCount! - a.reportCount!) }
+    return {
+      users: db.users
+        .filter((u) => (u.reportCount ?? 0) > 0)
+        .sort((a, b) => b.reportCount! - a.reportCount!)
+        .map(({ password, confirmed, tempPassword, ...u }: any) => u), // never the stored credentials
+    }
   },
   'POST /users/delete': ({ b }) => {
     need('PLATFORM_ADMIN')

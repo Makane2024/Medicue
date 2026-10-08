@@ -1,6 +1,6 @@
 import { CognitoIdentityProviderClient, ConfirmForgotPasswordCommand } from '@aws-sdk/client-cognito-identity-provider';
 import { HttpError, parseBody, respond, withErrorHandling } from './lib/http';
-import { requireEmail, requireString } from './lib/validation';
+import { requireEmail, requirePasswordHash, requireString } from './lib/validation';
 
 const cognitoClient = new CognitoIdentityProviderClient({});
 
@@ -9,7 +9,7 @@ export const handler = withErrorHandling(async (event) => {
   const body = parseBody(event);
   const email = requireEmail(body);
   const code = requireString(body, 'code', { max: 20 });
-  const newPassword = requireString(body, 'newPassword', { min: 8, max: 256 });
+  const newPassword = requirePasswordHash(body, 'newPassword');
 
   try {
     await cognitoClient.send(

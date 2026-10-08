@@ -4,6 +4,7 @@ import {
   requireEmail,
   requireEnum,
   requireIsoTime,
+  requirePasswordHash,
   requirePhone,
   requireString,
   slugify,
@@ -115,5 +116,20 @@ describe('generateTemporaryPassword', () => {
 
   it('is different every time', () => {
     expect(new Set(Array.from({ length: 50 }, () => generateTemporaryPassword())).size).toBe(50);
+  });
+});
+
+describe('requirePasswordHash', () => {
+  const hash = 'Mc1!' + 'a1b2c3d4'.repeat(8);
+
+  it('accepts the hash the MediCue client derives', () => {
+    expect(requirePasswordHash({ password: hash })).toBe(hash);
+    expect(requirePasswordHash({ newPassword: hash }, 'newPassword')).toBe(hash);
+  });
+
+  it('refuses a raw password, a wrong prefix and a wrong length', () => {
+    for (const password of ['Passw0rd!', hash.slice(0, -1), hash + '0', 'Mc2!' + hash.slice(4), hash.toUpperCase()]) {
+      expect(() => requirePasswordHash({ password })).toThrow(HttpError);
+    }
   });
 });

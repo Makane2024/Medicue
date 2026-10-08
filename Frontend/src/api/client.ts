@@ -2,7 +2,7 @@
 
 import { BASE } from './config'
 import { ApiError } from './errors'
-import { mockRequest } from './mock/index'
+import { mockRequest, prepareMock } from './mock/index'
 import { getToken } from './session'
 import type { LogEntry } from './types'
 
@@ -52,6 +52,7 @@ export async function call<T = any>(method: 'GET' | 'POST', path: string, body?:
   }
   await new Promise((r) => setTimeout(r, 220))
   try {
+    await prepareMock()
     const out = mockRequest(method, path, body ?? {})
     log(200)
     return JSON.parse(JSON.stringify(out)) as T

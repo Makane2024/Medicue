@@ -32,7 +32,7 @@ export function InviteForm({ form, onLogin, onBack }: Props) {
     await run(async () => {
       let session: string
       try {
-        const first = await api.login(email, val('password'))
+        const first = await api.login(email, val('password'), true)
         if (first.kind !== 'challenge') throw new Error('This invitation was already used. Sign in with your password.')
         session = first.session
       } catch (e) {

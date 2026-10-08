@@ -40,7 +40,7 @@ export const hospitalRoutes: RouteMap = {
       password,
       confirmed: false,
     } as MUser)
-    return { message: 'Hospital submitted for review.', hospitalId: h.hospitalId }
+    return { message: 'Hospital submitted for review.' }
   },
   'GET /hospitals/approved': () => {
     return {

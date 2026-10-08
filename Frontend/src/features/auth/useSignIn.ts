@@ -7,7 +7,6 @@ export async function enterApp(idToken: string): Promise<User> {
   setSession(idToken)
   try {
     const user = await api.me()
-    setSession(idToken, user.userId)
     return user
   } catch (error) {
     setSession(null)

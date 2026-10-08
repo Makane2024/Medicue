@@ -1,5 +1,7 @@
 // In-browser stand-in for the backend: answers the same routes with the same request and response shapes.
 
+import { hashPassword } from '../passwordHash'
+import { db } from './db'
 import { err } from './helpers'
 import './seed'
 import { authRoutes } from './routes/auth'
@@ -30,4 +32,13 @@ export function mockRequest(method: string, fullPath: string, body: any): unknow
   const handler = routes[`${method} ${path}`]
   if (!handler) throw err(404, 'Not found')
   return handler({ b: body, q: Object.fromEntries(new URLSearchParams(query)) })
+}
+
+const DEMO_PASSWORD = 'demo'
+
+/** The seeded accounts use the password "demo"; like the real backend, the mock only ever stores the client's hash. */
+export async function prepareMock() {
+  for (const u of db.users) {
+    if (u.password === DEMO_PASSWORD) u.password = await hashPassword(DEMO_PASSWORD, u.email)
+  }
 }

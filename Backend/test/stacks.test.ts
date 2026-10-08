@@ -66,6 +66,23 @@ describe('IAM', () => {
   });
 });
 
+describe('Secrets Manager', () => {
+  it('stores the SMS service credentials in a secret that only the notification worker can read', () => {
+    template.hasResourceProperties('AWS::SecretsManager::Secret', { Name: 'medicue/sms-provider' });
+    const readers = functions.filter(([logicalId]) =>
+      policyFor(logicalId.replace(/[0-9A-F]{8}$/, '')).includes('secretsmanager:GetSecretValue')
+    );
+    expect(readers.length).toBe(1);
+    expect(readers[0][1].Properties.Environment.Variables.SMS_SECRET_ARN).toBeDefined();
+  });
+
+  it('keeps key material out of every environment variable', () => {
+    for (const [, r] of functions) {
+      for (const name of Object.keys(r.Properties.Environment.Variables)) expect(name).not.toMatch(/KEY|SECRET$|TOKEN/);
+    }
+  });
+});
+
 describe('Lambda configuration', () => {
   it('sets explicit timeouts, memory and ARM on every function', () => {
     expect(functions.length).toBeGreaterThanOrEqual(35);

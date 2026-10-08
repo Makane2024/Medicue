@@ -30,7 +30,7 @@ export const authRoutes: RouteMap = {
       confirmed: false,
     }
     db.users.push(u)
-    return { message: 'Signup successful. Check your email for a verification code.', userId: u.userId }
+    return { message: 'Signup successful. Check your email for a verification code.' }
   },
   'POST /patients/confirm-signup': ({ b }) => {
     const u = db.users.find((x) => x.email === str(b, 'email').toLowerCase())
@@ -80,7 +80,7 @@ export const authRoutes: RouteMap = {
     return { message: 'Password changed. You can now sign in.' }
   },
   'GET /users/me': () => {
-    const { password, confirmed, tempPassword, suspended, ...u } = me() as MUser
+    const { password, confirmed, tempPassword, suspended, userId, ...u } = me() as MUser
     const h = u.hospitalId ? db.hospitals.find((x) => x.hospitalId === u.hospitalId) : undefined
     return {
       ...u,

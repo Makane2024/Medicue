@@ -2,7 +2,7 @@
 
 import { ApiError } from '../errors'
 import { BUFFER_CROSS, BUFFER_SAME, OFFER_MIN } from '../rules'
-import { sessionUserId } from '../session'
+import { getToken } from '../session'
 import type { Appointment, Role, Slot, User } from '../types'
 import { db, type MUser } from './db'
 import { id, iso, now } from './utils'
@@ -10,7 +10,7 @@ import { id, iso, now } from './utils'
 export const err = (status: number, msg: string) => new ApiError(status, msg)
 
 export const me = () => {
-  const u = db.users.find((x) => x.userId === sessionUserId())
+  const u = db.users.find((x) => x.userId === mockSessionUserId())
   if (!u) throw err(401, 'Unauthorized')
   if ((u as MUser).suspended) throw err(403, 'Your account has been suspended. Contact the platform administrators.')
   return u
@@ -136,12 +136,10 @@ export function deleteUser(userId: string) {
   })
 }
 
-export const tokensFor = (u: User) => ({
-  idToken: 'mock.' + u.userId,
-  accessToken: 'mock-access',
-  refreshToken: 'mock-refresh',
-  expiresIn: 3600,
-})
+// the mock's token is just 'mock.<userId>'; the real backend sends the ID token only
+const mockSessionUserId = () => getToken()?.replace(/^mock\./, '') ?? null
+
+export const tokensFor = (u: User) => ({ idToken: 'mock.' + u.userId })
 
 export const withNames = (a: Appointment): Appointment => ({
   ...a,

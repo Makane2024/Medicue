@@ -4,7 +4,7 @@ import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3';
 import { randomUUID } from 'crypto';
 import { ddb } from './lib/db';
 import { HttpError, parseBody, respond, withErrorHandling } from './lib/http';
-import { requireEmail, requirePhone, requireString } from './lib/validation';
+import { requireEmail, requirePhone, requirePasswordHash, requireString } from './lib/validation';
 import { deleteCognitoUserQuietly } from './lib/cognito';
 
 const cognitoClient = new CognitoIdentityProviderClient({});
@@ -18,7 +18,7 @@ export const handler = withErrorHandling(async (event) => {
   const firstName = requireString(body, 'firstName', { max: 100 });
   const lastName = requireString(body, 'lastName', { max: 100 });
   const email = requireEmail(body);
-  const password = requireString(body, 'password', { min: 8, max: 256 });
+  const password = requirePasswordHash(body);
   const hospitalName = requireString(body, 'hospitalName', { max: 200 });
   const address = requireString(body, 'address', { max: 300 });
   const phone = requirePhone(body);
@@ -83,5 +83,5 @@ export const handler = withErrorHandling(async (event) => {
     throw err;
   }
 
-  return respond(200, { message: 'Hospital submitted for review.', hospitalId });
+  return respond(200, { message: 'Hospital submitted for review.' });
 });

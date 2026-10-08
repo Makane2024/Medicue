@@ -211,19 +211,26 @@ describe('password recovery', () => {
     expect((await call(forgot, { email: 'nope' })).statusCode).toBe(400);
   });
 
+  const HASH = 'Mc1!' + 'ab12cd34'.repeat(8);
+
+  it('reset-password refuses a raw password', async () => {
+    expect((await call(reset, { email: 'a@b.cd', code: '123456', newPassword: 'Str0ngPass' })).statusCode).toBe(400);
+    expect(cognitoSend).not.toHaveBeenCalled();
+  });
+
   it('reset-password sends the code and the new password', async () => {
-    const res = await call(reset, { email: 'a@b.cd', code: '123456', newPassword: 'Str0ngPass' });
+    const res = await call(reset, { email: 'a@b.cd', code: '123456', newPassword: HASH });
     expect(res.statusCode).toBe(200);
-    expect(cognitoSend.mock.calls[0][0].input).toMatchObject({ Username: 'a@b.cd', ConfirmationCode: '123456', Password: 'Str0ngPass' });
+    expect(cognitoSend.mock.calls[0][0].input).toMatchObject({ Username: 'a@b.cd', ConfirmationCode: '123456', Password: HASH });
   });
 
   it('reset-password maps wrong codes and weak passwords to 400, and unknown accounts look like wrong codes', async () => {
     cognitoSend.mockRejectedValueOnce(Object.assign(new Error('x'), { name: 'CodeMismatchException' }));
-    expect((await call(reset, { email: 'a@b.cd', code: '000000', newPassword: 'Str0ngPass' })).statusCode).toBe(400);
+    expect((await call(reset, { email: 'a@b.cd', code: '000000', newPassword: HASH })).statusCode).toBe(400);
     cognitoSend.mockRejectedValueOnce(Object.assign(new Error('Password did not conform'), { name: 'InvalidPasswordException' }));
-    expect((await call(reset, { email: 'a@b.cd', code: '123456', newPassword: 'weakweak' })).statusCode).toBe(400);
+    expect((await call(reset, { email: 'a@b.cd', code: '123456', newPassword: HASH })).statusCode).toBe(400);
     cognitoSend.mockRejectedValueOnce(Object.assign(new Error('x'), { name: 'UserNotFoundException' }));
-    const res = await call(reset, { email: 'ghost@b.cd', code: '123456', newPassword: 'Str0ngPass' });
+    const res = await call(reset, { email: 'ghost@b.cd', code: '123456', newPassword: HASH });
     expect(res.statusCode).toBe(400);
     expect(json(res).message).toMatch(/Invalid or expired/);
   });

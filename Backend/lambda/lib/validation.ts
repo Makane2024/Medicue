@@ -20,6 +20,17 @@ export function requireString(body: Record<string, any>, key: string, opts: { mi
   return result;
 }
 
+// The browser never sends a raw password: it derives "Mc1!" + 64 hex characters (PBKDF2-SHA256, salted with the
+// email address) and that string is what Cognito stores as the password. Refusing anything else on the routes that
+// set a password keeps raw passwords out of the payload and out of the logs.
+const PASSWORD_HASH_RE = /^Mc1![0-9a-f]{64}$/;
+
+export function requirePasswordHash(body: Record<string, any>, key = 'password'): string {
+  const value = requireString(body, key, { max: 256 });
+  if (!PASSWORD_HASH_RE.test(value)) throw new HttpError(400, `${key} must be sent hashed by the MediCue client`);
+  return value;
+}
+
 export function requireEmail(body: Record<string, any>, key = 'email'): string {
   const value = requireString(body, key, { max: 254 }).toLowerCase();
   if (!EMAIL_RE.test(value)) throw new HttpError(400, `${key} must be a valid email address`);

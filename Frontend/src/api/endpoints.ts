@@ -3,8 +3,8 @@
 
 import { call } from './client'
 import { ApiError } from './errors'
+import { hashPassword } from './passwordHash'
 import { HOLD_MIN, toE164 } from './rules'
-import { sessionUserId } from './session'
 import {
   type Appointment,
   type AppointmentStats,
@@ -28,7 +28,7 @@ import {
 
 // ----------------------------------------------------------------- typed API (what the UI uses)
 export const api = {
-  signup: (f: {
+  signup: async (f: {
     firstName: string
     lastName: string
     email: string
@@ -36,25 +36,41 @@ export const api = {
     phone: string
     dateOfBirth: string
   }) =>
-    call<{ userId: string; message: string }>('POST', '/patients/signup', {
+    call<{ message: string }>('POST', '/patients/signup', {
       ...f,
       email: f.email.trim().toLowerCase(),
+      password: await hashPassword(f.password, f.email),
       phone: toE164(f.phone),
     }),
   confirm: (email: string, confirmationCode: string) =>
     call('POST', '/patients/confirm-signup', { email: email.trim().toLowerCase(), confirmationCode }),
-  async login(email: string, password: string): Promise<LoginResult> {
-    const r = await call<any>('POST', '/auth/login', { email: email.trim().toLowerCase(), password })
+  // `temporary`: the one-time password from an invitation email. The server generated it, so it is sent as is.
+  async login(email: string, password: string, temporary = false): Promise<LoginResult> {
+    const addr = email.trim().toLowerCase()
+    const hashed = temporary ? password : await hashPassword(password, email)
+    let r: any
+    try {
+      r = await call<any>('POST', '/auth/login', { email: addr, password: hashed })
+    } catch (e) {
+      if (temporary || !(e instanceof ApiError) || e.status !== 401) throw e
+      // An account from before passwords were hashed: sign in with the raw one, once, and the server swaps it for the hash.
+      r = await call<any>('POST', '/auth/login', { email: addr, password, upgradeTo: hashed })
+    }
     return r.challenge === 'NEW_PASSWORD_REQUIRED'
       ? { kind: 'challenge', session: r.session, message: r.message }
       : { kind: 'tokens', idToken: r.idToken }
   },
   // completes a doctor's first login (account created by a hospital admin with an emailed temporary password)
   async newPassword(email: string, newPassword: string, session: string) {
-    const r = await call<any>('POST', '/auth/new-password', { email: email.trim().toLowerCase(), newPassword, session })
+    const r = await call<any>('POST', '/auth/new-password', {
+      email: email.trim().toLowerCase(),
+      newPassword: await hashPassword(newPassword, email),
+      session,
+    })
     return r.idToken as string
   },
-  me: () => call<User>('GET', '/users/me'),
+  // the backend does not send the caller's own id; `userId` is '' for the signed-in user
+  me: async (): Promise<User> => ({ ...(await call<User>('GET', '/users/me')), userId: '' }),
 
   approvedHospitals: async () => (await call<{ hospitals: Hospital[] }>('GET', '/hospitals/approved')).hospitals,
   // platform admin only; each item carries a short-lived verificationDocUrl
@@ -62,7 +78,7 @@ export const api = {
     (await call<{ hospitals: Hospital[] }>('GET', `/hospitals/list?status=${status}`)).hospitals,
   reviewHospital: (hospitalId: string, decision: 'APPROVED' | 'REJECTED') =>
     call('POST', '/hospitals/review', { hospitalId, decision }),
-  registerHospital: (f: {
+  registerHospital: async (f: {
     firstName: string
     lastName: string
     email: string
@@ -72,9 +88,10 @@ export const api = {
     phone: string
     documentBase64: string
   }) =>
-    call<{ hospitalId: string; message: string }>('POST', '/hospitals/register', {
+    call<{ message: string }>('POST', '/hospitals/register', {
       ...f,
       email: f.email.trim().toLowerCase(),
+      password: await hashPassword(f.password, f.email),
       phone: toE164(f.phone),
     }),
 
@@ -119,7 +136,7 @@ export const api = {
     })
     return {
       appointmentId: r.appointmentId,
-      patientId: sessionUserId() ?? '',
+      patientId: '', // the caller's id is never sent to the browser
       doctorId: slot.doctorId,
       hospitalId: slot.hospitalId,
       slotId: slot.slotId,
@@ -176,8 +193,10 @@ export const api = {
   notifications: async () => (await call<{ notifications: Notice[] }>('GET', '/notifications/mine')).notifications,
 
   // own profile; the email can't change and only doctors have a bio. A null photo removes it.
-  updateProfile: (f: { firstName: string; lastName: string; phone: string; bio?: string; photo: string | null }) =>
-    call<User>('POST', '/users/update-profile', { ...f, phone: f.phone.trim() ? toE164(f.phone) : '' }),
+  updateProfile: async (f: { firstName: string; lastName: string; phone: string; bio?: string; photo: string | null }) => ({
+    ...(await call<User>('POST', '/users/update-profile', { ...f, phone: f.phone.trim() ? toE164(f.phone) : '' })),
+    userId: '',
+  }),
 
   report: (userId: string) => call('POST', '/users/report', { userId }),
   // platform admin only, most reported first
@@ -195,8 +214,12 @@ export const api = {
 
   // password recovery: both answer generically, so they say nothing about whether an account exists
   forgotPassword: (email: string) => call('POST', '/auth/forgot-password', { email: email.trim().toLowerCase() }),
-  resetPassword: (email: string, code: string, newPassword: string) =>
-    call('POST', '/auth/reset-password', { email: email.trim().toLowerCase(), code: code.trim(), newPassword }),
+  resetPassword: async (email: string, code: string, newPassword: string) =>
+    call('POST', '/auth/reset-password', {
+      email: email.trim().toLowerCase(),
+      code: code.trim(),
+      newPassword: await hashPassword(newPassword, email),
+    }),
 
   // hospital admin
   stats: (from: Date, to: Date) =>

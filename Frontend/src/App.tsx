@@ -37,7 +37,7 @@ export default function App() {
   return (
     <>
       <Toasts />
-      {user ? <Shell key={user.userId} user={user} onLogout={signOut} /> : <AuthPage onLogin={setUser} />}
+      {user ? <Shell key={user.email} user={user} onLogout={signOut} /> : <AuthPage onLogin={setUser} />}
       <ApiConsole />
     </>
   )

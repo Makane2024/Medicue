@@ -3,7 +3,7 @@ import {
   RespondToAuthChallengeCommand,
 } from '@aws-sdk/client-cognito-identity-provider';
 import { parseBody, respond, withErrorHandling } from './lib/http';
-import { requireEmail, requireString } from './lib/validation';
+import { requireEmail, requirePasswordHash, requireString } from './lib/validation';
 
 const cognitoClient = new CognitoIdentityProviderClient({});
 
@@ -11,7 +11,7 @@ const cognitoClient = new CognitoIdentityProviderClient({});
 export const handler = withErrorHandling(async (event) => {
   const body = parseBody(event);
   const email = requireEmail(body);
-  const newPassword = requireString(body, 'newPassword', { min: 8, max: 256 });
+  const newPassword = requirePasswordHash(body, 'newPassword');
   const session = requireString(body, 'session', { max: 4096 });
 
   const result = await cognitoClient.send(
@@ -28,8 +28,5 @@ export const handler = withErrorHandling(async (event) => {
 
   return respond(200, {
     idToken: auth.IdToken,
-    accessToken: auth.AccessToken,
-    refreshToken: auth.RefreshToken,
-    expiresIn: auth.ExpiresIn,
   });
 });
