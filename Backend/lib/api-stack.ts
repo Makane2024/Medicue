@@ -197,49 +197,12 @@ export class ApiStack extends cdk.Stack {
       new iam.PolicyStatement({ actions: ['sns:Publish'], resources: ['*'] })
     );
 
-    // ---------- Scheduled reminder checks ----------
-    const checkEmailRemindersFunction = createFunction(
-      'CheckEmailRemindersFunction',
-      'check-email-reminders',
-      {
-        APPOINTMENTS_TABLE_NAME: T.appointments,
-        NOTIFICATIONS_TABLE_NAME: T.notifications,
-        EVENT_BUS_NAME: eventBus.eventBusName,
-      },
-      { timeoutSeconds: 60 }
-    );
-    props.appointmentsTable.grantReadWriteData(checkEmailRemindersFunction);
-    props.notificationsTable.grantWriteData(checkEmailRemindersFunction);
-    eventBus.grantPutEventsTo(checkEmailRemindersFunction);
-
-    new events.Rule(this, 'EmailReminderScheduleRule', {
-      schedule: events.Schedule.rate(cdk.Duration.hours(1)),
-      targets: [new eventTargets.LambdaFunction(checkEmailRemindersFunction)],
-    });
-
-    const checkSmsRemindersFunction = createFunction(
-      'CheckSmsRemindersFunction',
-      'check-sms-reminders',
-      {
-        APPOINTMENTS_TABLE_NAME: T.appointments,
-        NOTIFICATIONS_TABLE_NAME: T.notifications,
-        EVENT_BUS_NAME: eventBus.eventBusName,
-      },
-      { timeoutSeconds: 60 }
-    );
-    props.appointmentsTable.grantReadWriteData(checkSmsRemindersFunction);
-    props.notificationsTable.grantWriteData(checkSmsRemindersFunction);
-    eventBus.grantPutEventsTo(checkSmsRemindersFunction);
-
-    new events.Rule(this, 'SmsReminderScheduleRule', {
-      schedule: events.Schedule.rate(cdk.Duration.minutes(5)),
-      targets: [new eventTargets.LambdaFunction(checkSmsRemindersFunction)],
-    });
-
-    // ---------- Scheduled expiry checks ----------
-    const releaseExpiredPaymentHoldsFunction = createFunction(
-      'ReleaseExpiredPaymentHoldsFunction',
-      'release-expired-payment-holds',
+    // ---------- Scheduled jobs: one Lambda, one EventBridge rule per job ----------
+    // Reminders (email hourly, SMS every 5 minutes), expiry of payment holds and waitlist offers (every minute) and
+    // confirmed sessions nobody checked the patient in for, which become MISSED (every 15 minutes).
+    const scheduledJobsFunction = createFunction(
+      'ScheduledJobsFunction',
+      'scheduled-jobs',
       {
         APPOINTMENTS_TABLE_NAME: T.appointments,
         AVAILABILITY_TABLE_NAME: T.availability,
@@ -249,51 +212,26 @@ export class ApiStack extends cdk.Stack {
       },
       { timeoutSeconds: 60 }
     );
-    props.appointmentsTable.grantReadWriteData(releaseExpiredPaymentHoldsFunction);
-    props.availabilityTable.grantReadWriteData(releaseExpiredPaymentHoldsFunction);
-    props.waitlistTable.grantReadWriteData(releaseExpiredPaymentHoldsFunction);
-    props.notificationsTable.grantWriteData(releaseExpiredPaymentHoldsFunction);
-    eventBus.grantPutEventsTo(releaseExpiredPaymentHoldsFunction);
+    props.appointmentsTable.grantReadWriteData(scheduledJobsFunction);
+    props.availabilityTable.grantReadWriteData(scheduledJobsFunction);
+    props.waitlistTable.grantReadWriteData(scheduledJobsFunction);
+    props.notificationsTable.grantWriteData(scheduledJobsFunction);
+    eventBus.grantPutEventsTo(scheduledJobsFunction);
 
-    new events.Rule(this, 'PaymentHoldExpiryScheduleRule', {
-      schedule: events.Schedule.rate(cdk.Duration.minutes(1)),
-      targets: [new eventTargets.LambdaFunction(releaseExpiredPaymentHoldsFunction)],
-    });
+    const schedule = (ruleId: string, job: string, every: cdk.Duration) =>
+      new events.Rule(this, ruleId, {
+        schedule: events.Schedule.rate(every),
+        targets: [
+          new eventTargets.LambdaFunction(scheduledJobsFunction, { event: events.RuleTargetInput.fromObject({ job }) }),
+        ],
+      });
+    schedule('EmailReminderScheduleRule', 'email-reminders', cdk.Duration.hours(1));
+    schedule('SmsReminderScheduleRule', 'sms-reminders', cdk.Duration.minutes(5));
+    schedule('PaymentHoldExpiryScheduleRule', 'release-payment-holds', cdk.Duration.minutes(1));
+    schedule('WaitlistOfferExpiryScheduleRule', 'release-waitlist-offers', cdk.Duration.minutes(1));
+    schedule('MissedAppointmentScheduleRule', 'mark-missed', cdk.Duration.minutes(15));
 
-    const releaseExpiredWaitlistOffersFunction = createFunction(
-      'ReleaseExpiredWaitlistOffersFunction',
-      'release-expired-waitlist-offers',
-      {
-        WAITLIST_TABLE_NAME: T.waitlist,
-        AVAILABILITY_TABLE_NAME: T.availability,
-        NOTIFICATIONS_TABLE_NAME: T.notifications,
-        EVENT_BUS_NAME: eventBus.eventBusName,
-      },
-      { timeoutSeconds: 60 }
-    );
-    props.waitlistTable.grantReadWriteData(releaseExpiredWaitlistOffersFunction);
-    props.availabilityTable.grantReadWriteData(releaseExpiredWaitlistOffersFunction);
-    props.notificationsTable.grantWriteData(releaseExpiredWaitlistOffersFunction);
-    eventBus.grantPutEventsTo(releaseExpiredWaitlistOffersFunction);
-
-    new events.Rule(this, 'WaitlistOfferExpiryScheduleRule', {
-      schedule: events.Schedule.rate(cdk.Duration.minutes(1)),
-      targets: [new eventTargets.LambdaFunction(releaseExpiredWaitlistOffersFunction)],
-    });
-
-    // ---------- Auth ----------
-    const patientSignupFunction = createFunction('PatientSignupFunction', 'patient-signup', {
-      USER_POOL_CLIENT_ID: this.userPoolClient.userPoolClientId,
-      USER_POOL_ID: this.userPool.userPoolId,
-      USERS_TABLE_NAME: T.users,
-    });
-    props.usersTable.grantWriteData(patientSignupFunction);
-    this.userPool.grant(patientSignupFunction, 'cognito-idp:AdminDeleteUser');
-
-    const confirmSignupFunction = createFunction('ConfirmSignupFunction', 'confirm-signup', {
-      USER_POOL_CLIENT_ID: this.userPoolClient.userPoolClientId,
-    });
-
+    // ---------- Auth: signup, sign-in, session cookie and password recovery (all public routes) ----------
     // Key that encrypts the session cookie (see lambda/lib/cookie-seal.ts). CDK generates it once and never overwrites it;
     // to rotate, put the old value in `previousKey` and a new one in `key`, or replace `key` alone to sign everyone out.
     const cookieKeySecret = new secretsmanager.Secret(this, 'CookieKeySecret', {
@@ -303,81 +241,108 @@ export class ApiStack extends cdk.Stack {
       removalPolicy: cdk.RemovalPolicy.RETAIN,
     });
 
-    const loginFunction = createFunction('LoginFunction', 'login', {
+    const authFunction = createFunction('AuthFunction', 'auth', {
       USER_POOL_CLIENT_ID: this.userPoolClient.userPoolClientId,
       USER_POOL_ID: this.userPool.userPoolId,
+      USERS_TABLE_NAME: T.users,
       // Lets accounts that still have a raw password sign in once and move to the hashed one (see lambda/login.ts).
       ALLOW_LEGACY_LOGIN: String(this.node.tryGetContext('allowLegacyLogin') ?? 'true'),
       COOKIE_SECRET_ARN: cookieKeySecret.secretArn,
     });
-    this.userPool.grant(loginFunction, 'cognito-idp:AdminSetUserPassword');
-    cookieKeySecret.grantRead(loginFunction);
+    props.usersTable.grantWriteData(authFunction);
+    this.userPool.grant(authFunction, 'cognito-idp:AdminDeleteUser', 'cognito-idp:AdminSetUserPassword');
+    cookieKeySecret.grantRead(authFunction);
 
-    // Renews the session from the refresh-token cookie (POST /auth/refresh) and ends it (POST /auth/logout).
-    const authSessionFunction = createFunction('AuthSessionFunction', 'auth-session', {
-      USER_POOL_CLIENT_ID: this.userPoolClient.userPoolClientId,
-      COOKIE_SECRET_ARN: cookieKeySecret.secretArn,
-    });
-    cookieKeySecret.grantRead(authSessionFunction);
-
-    const newPasswordFunction = createFunction('NewPasswordFunction', 'new-password', {
-      USER_POOL_CLIENT_ID: this.userPoolClient.userPoolClientId,
-      COOKIE_SECRET_ARN: cookieKeySecret.secretArn,
-    });
-    cookieKeySecret.grantRead(newPasswordFunction);
-
-    // ---------- Hospitals (no medical notes access) ----------
-    const registerHospitalFunction = createFunction('RegisterHospitalFunction', 'register-hospital', {
+    // ---------- Hospitals and their statistics (no medical notes access) ----------
+    const hospitalsFunction = createFunction('HospitalsFunction', 'hospitals', {
       USER_POOL_CLIENT_ID: this.userPoolClient.userPoolClientId,
       USER_POOL_ID: this.userPool.userPoolId,
       USERS_TABLE_NAME: T.users,
       HOSPITALS_TABLE_NAME: T.hospitals,
-      BUCKET_NAME: props.bucket.bucketName,
-    });
-    props.usersTable.grantWriteData(registerHospitalFunction);
-    props.hospitalsTable.grantWriteData(registerHospitalFunction);
-    props.bucket.grantPut(registerHospitalFunction);
-    this.userPool.grant(registerHospitalFunction, 'cognito-idp:AdminDeleteUser');
-
-    const reviewHospitalFunction = createFunction('ReviewHospitalFunction', 'review-hospital', {
-      USERS_TABLE_NAME: T.users,
-      HOSPITALS_TABLE_NAME: T.hospitals,
+      APPOINTMENTS_TABLE_NAME: T.appointments,
       NOTIFICATIONS_TABLE_NAME: T.notifications,
+      BUCKET_NAME: props.bucket.bucketName,
       EVENT_BUS_NAME: eventBus.eventBusName,
     });
-    props.usersTable.grantReadData(reviewHospitalFunction);
-    props.hospitalsTable.grantWriteData(reviewHospitalFunction);
-    props.notificationsTable.grantWriteData(reviewHospitalFunction);
-    eventBus.grantPutEventsTo(reviewHospitalFunction);
+    props.usersTable.grantReadWriteData(hospitalsFunction);
+    props.hospitalsTable.grantReadWriteData(hospitalsFunction);
+    props.appointmentsTable.grantReadData(hospitalsFunction);
+    props.notificationsTable.grantWriteData(hospitalsFunction);
+    props.bucket.grantRead(hospitalsFunction);
+    props.bucket.grantPut(hospitalsFunction);
+    eventBus.grantPutEventsTo(hospitalsFunction);
+    this.userPool.grant(hospitalsFunction, 'cognito-idp:AdminDeleteUser');
 
-    const listHospitalsFunction = createFunction('ListHospitalsFunction', 'list-hospitals', {
-      USERS_TABLE_NAME: T.users,
-      HOSPITALS_TABLE_NAME: T.hospitals,
-      BUCKET_NAME: props.bucket.bucketName,
-    });
-    props.usersTable.grantReadData(listHospitalsFunction);
-    props.hospitalsTable.grantReadData(listHospitalsFunction);
-    props.bucket.grantRead(listHospitalsFunction);
+    // ---------- Doctors, staff and bulk invitations (no medical notes access) ----------
+    // Up to 50 accounts per bulk request; each needs a Cognito call, so this gets a longer timeout than the default.
+    const teamFunction = createFunction(
+      'TeamFunction',
+      'team',
+      {
+        USER_POOL_ID: this.userPool.userPoolId,
+        USERS_TABLE_NAME: T.users,
+        HOSPITALS_TABLE_NAME: T.hospitals,
+        AFFILIATIONS_TABLE_NAME: T.affiliations,
+        AVAILABILITY_TABLE_NAME: T.availability,
+      },
+      { timeoutSeconds: 28 }
+    );
+    props.usersTable.grantReadWriteData(teamFunction);
+    props.hospitalsTable.grantReadData(teamFunction);
+    props.affiliationsTable.grantReadWriteData(teamFunction);
+    props.availabilityTable.grantReadWriteData(teamFunction);
+    this.userPool.grant(teamFunction, 'cognito-idp:AdminCreateUser', 'cognito-idp:AdminDeleteUser');
 
-    const listApprovedHospitalsFunction = createFunction('ListApprovedHospitalsFunction', 'list-approved-hospitals', {
-      HOSPITALS_TABLE_NAME: T.hospitals,
-    });
-    props.hospitalsTable.grantReadData(listApprovedHospitalsFunction);
-
-    // ---------- Doctors (no medical notes access) ----------
-    const addDoctorFunction = createFunction('AddDoctorFunction', 'add-doctor', {
+    // ---------- Profiles, reports, notifications and the platform admin's account directory ----------
+    const usersFunction = createFunction('UsersFunction', 'users', {
       USER_POOL_ID: this.userPool.userPoolId,
       USERS_TABLE_NAME: T.users,
       HOSPITALS_TABLE_NAME: T.hospitals,
-      AFFILIATIONS_TABLE_NAME: T.affiliations,
+      REPORTS_TABLE_NAME: T.reports,
+      NOTIFICATIONS_TABLE_NAME: T.notifications,
     });
-    props.usersTable.grantReadWriteData(addDoctorFunction);
-    props.hospitalsTable.grantReadData(addDoctorFunction);
-    props.affiliationsTable.grantWriteData(addDoctorFunction);
-    this.userPool.grant(addDoctorFunction, 'cognito-idp:AdminCreateUser', 'cognito-idp:AdminDeleteUser');
+    props.usersTable.grantReadWriteData(usersFunction);
+    props.hospitalsTable.grantReadData(usersFunction);
+    props.reportsTable.grantWriteData(usersFunction);
+    props.notificationsTable.grantReadData(usersFunction);
+    this.userPool.grant(
+      usersFunction,
+      'cognito-idp:AdminDisableUser',
+      'cognito-idp:AdminEnableUser',
+      'cognito-idp:AdminUserGlobalSignOut'
+    );
 
-    // ---------- Availability ----------
-    const proposeSlotFunction = createFunction('ProposeSlotFunction', 'propose-slot', {
+    // ---------- Permanent removal of an account or a hospital ----------
+    // They cancel or free bookings, so they need the same tables and notification plumbing as cancelling an
+    // appointment, plus Cognito user deletion.
+    const removalsFunction = createFunction(
+      'RemovalsFunction',
+      'removals',
+      {
+        USER_POOL_ID: this.userPool.userPoolId,
+        USERS_TABLE_NAME: T.users,
+        HOSPITALS_TABLE_NAME: T.hospitals,
+        AFFILIATIONS_TABLE_NAME: T.affiliations,
+        AVAILABILITY_TABLE_NAME: T.availability,
+        APPOINTMENTS_TABLE_NAME: T.appointments,
+        WAITLIST_TABLE_NAME: T.waitlist,
+        NOTIFICATIONS_TABLE_NAME: T.notifications,
+        EVENT_BUS_NAME: eventBus.eventBusName,
+      },
+      { timeoutSeconds: 120 }
+    );
+    props.usersTable.grantReadWriteData(removalsFunction);
+    props.hospitalsTable.grantReadWriteData(removalsFunction);
+    props.affiliationsTable.grantReadWriteData(removalsFunction);
+    props.availabilityTable.grantReadWriteData(removalsFunction);
+    props.appointmentsTable.grantReadWriteData(removalsFunction);
+    props.waitlistTable.grantReadWriteData(removalsFunction);
+    props.notificationsTable.grantWriteData(removalsFunction);
+    eventBus.grantPutEventsTo(removalsFunction);
+    this.userPool.grant(removalsFunction, 'cognito-idp:AdminDeleteUser');
+
+    // ---------- Availability (no medical notes access) ----------
+    const availabilityFunction = createFunction('AvailabilityFunction', 'availability', {
       USERS_TABLE_NAME: T.users,
       HOSPITALS_TABLE_NAME: T.hospitals,
       AFFILIATIONS_TABLE_NAME: T.affiliations,
@@ -385,50 +350,17 @@ export class ApiStack extends cdk.Stack {
       NOTIFICATIONS_TABLE_NAME: T.notifications,
       EVENT_BUS_NAME: eventBus.eventBusName,
     });
-    props.usersTable.grantReadData(proposeSlotFunction);
-    props.hospitalsTable.grantReadData(proposeSlotFunction);
-    props.affiliationsTable.grantReadData(proposeSlotFunction);
-    props.availabilityTable.grantReadWriteData(proposeSlotFunction);
-    props.notificationsTable.grantWriteData(proposeSlotFunction);
-    eventBus.grantPutEventsTo(proposeSlotFunction);
+    props.usersTable.grantReadData(availabilityFunction);
+    props.hospitalsTable.grantReadData(availabilityFunction);
+    props.affiliationsTable.grantReadData(availabilityFunction);
+    props.availabilityTable.grantReadWriteData(availabilityFunction);
+    props.notificationsTable.grantWriteData(availabilityFunction);
+    eventBus.grantPutEventsTo(availabilityFunction);
 
-    const approveSlotFunction = createFunction('ApproveSlotFunction', 'approve-slot', {
-      AVAILABILITY_TABLE_NAME: T.availability,
-    });
-    props.availabilityTable.grantReadWriteData(approveSlotFunction);
-
-    const pendingSlotsFunction = createFunction('PendingSlotsFunction', 'pending-slots', {
-      AVAILABILITY_TABLE_NAME: T.availability,
-    });
-    props.availabilityTable.grantReadData(pendingSlotsFunction);
-
-    // ---------- Booking & Payment ----------
-    const browseSlotsFunction = createFunction('BrowseSlotsFunction', 'browse-slots', {
-      AVAILABILITY_TABLE_NAME: T.availability,
-      HOSPITALS_TABLE_NAME: T.hospitals,
-    });
-    props.availabilityTable.grantReadData(browseSlotsFunction);
-    props.hospitalsTable.grantReadData(browseSlotsFunction);
-
-    const bookAppointmentFunction = createFunction('BookAppointmentFunction', 'book-appointment', {
-      USERS_TABLE_NAME: T.users,
-      AVAILABILITY_TABLE_NAME: T.availability,
-      APPOINTMENTS_TABLE_NAME: T.appointments,
-    });
-    props.usersTable.grantReadData(bookAppointmentFunction);
-    props.availabilityTable.grantReadWriteData(bookAppointmentFunction);
-    props.appointmentsTable.grantReadWriteData(bookAppointmentFunction);
-
-    const myAppointmentsFunction = createFunction('MyAppointmentsFunction', 'my-appointments', {
+    // ---------- Appointments: booking, payment, cancelling, rescheduling, check-in, completion, and the waitlist ----------
+    const appointmentsFunction = createFunction('AppointmentsFunction', 'appointments', {
       USERS_TABLE_NAME: T.users,
       HOSPITALS_TABLE_NAME: T.hospitals,
-      APPOINTMENTS_TABLE_NAME: T.appointments,
-    });
-    props.usersTable.grantReadData(myAppointmentsFunction);
-    props.hospitalsTable.grantReadData(myAppointmentsFunction);
-    props.appointmentsTable.grantReadData(myAppointmentsFunction);
-
-    const processPaymentFunction = createFunction('ProcessPaymentFunction', 'process-payment', {
       AVAILABILITY_TABLE_NAME: T.availability,
       APPOINTMENTS_TABLE_NAME: T.appointments,
       WAITLIST_TABLE_NAME: T.waitlist,
@@ -438,307 +370,33 @@ export class ApiStack extends cdk.Stack {
       // once a real payment provider replaces it.
       ALLOW_PAYMENT_SIMULATION: allowPaymentSimulation,
     });
-    props.availabilityTable.grantReadWriteData(processPaymentFunction);
-    props.appointmentsTable.grantReadWriteData(processPaymentFunction);
-    props.waitlistTable.grantReadWriteData(processPaymentFunction);
-    props.notificationsTable.grantWriteData(processPaymentFunction);
-    eventBus.grantPutEventsTo(processPaymentFunction);
+    props.usersTable.grantReadData(appointmentsFunction);
+    props.hospitalsTable.grantReadData(appointmentsFunction);
+    props.availabilityTable.grantReadWriteData(appointmentsFunction);
+    props.appointmentsTable.grantReadWriteData(appointmentsFunction);
+    props.waitlistTable.grantReadWriteData(appointmentsFunction);
+    props.notificationsTable.grantWriteData(appointmentsFunction);
+    eventBus.grantPutEventsTo(appointmentsFunction);
 
-    // ---------- Cancellation & Rescheduling ----------
-    const cancelAppointmentFunction = createFunction('CancelAppointmentFunction', 'cancel-appointment', {
-      APPOINTMENTS_TABLE_NAME: T.appointments,
-      AVAILABILITY_TABLE_NAME: T.availability,
-      WAITLIST_TABLE_NAME: T.waitlist,
-      NOTIFICATIONS_TABLE_NAME: T.notifications,
-      EVENT_BUS_NAME: eventBus.eventBusName,
-    });
-    props.appointmentsTable.grantReadWriteData(cancelAppointmentFunction);
-    props.availabilityTable.grantReadWriteData(cancelAppointmentFunction);
-    props.waitlistTable.grantReadWriteData(cancelAppointmentFunction);
-    props.notificationsTable.grantWriteData(cancelAppointmentFunction);
-    eventBus.grantPutEventsTo(cancelAppointmentFunction);
-
-    // A patient arrives: staff or the hospital admin check them in. The doctor completes the session afterwards.
-    const checkInAppointmentFunction = createFunction('CheckInAppointmentFunction', 'check-in-appointment', {
+    // ---------- Reviews (no medical notes access) ----------
+    const reviewsFunction = createFunction('ReviewsFunction', 'reviews', {
       USERS_TABLE_NAME: T.users,
       APPOINTMENTS_TABLE_NAME: T.appointments,
+      REVIEWS_TABLE_NAME: T.reviews,
     });
-    props.usersTable.grantReadData(checkInAppointmentFunction);
-    props.appointmentsTable.grantReadWriteData(checkInAppointmentFunction);
+    props.usersTable.grantReadData(reviewsFunction);
+    props.appointmentsTable.grantReadData(reviewsFunction);
+    props.reviewsTable.grantReadWriteData(reviewsFunction);
 
-    const completeAppointmentFunction = createFunction('CompleteAppointmentFunction', 'complete-appointment', {
+    // ---------- Medical Notes (the ONLY function with access to medicalNotesTable) ----------
+    const medicalNotesFunction = createFunction('MedicalNotesFunction', 'medical-notes', {
       USERS_TABLE_NAME: T.users,
-      APPOINTMENTS_TABLE_NAME: T.appointments,
-      NOTIFICATIONS_TABLE_NAME: T.notifications,
-      EVENT_BUS_NAME: eventBus.eventBusName,
-    });
-    props.usersTable.grantReadData(completeAppointmentFunction);
-    props.appointmentsTable.grantReadWriteData(completeAppointmentFunction);
-    props.notificationsTable.grantWriteData(completeAppointmentFunction);
-    eventBus.grantPutEventsTo(completeAppointmentFunction);
-
-    const rescheduleAppointmentFunction = createFunction('RescheduleAppointmentFunction', 'reschedule-appointment', {
-      APPOINTMENTS_TABLE_NAME: T.appointments,
-      AVAILABILITY_TABLE_NAME: T.availability,
-      WAITLIST_TABLE_NAME: T.waitlist,
-      NOTIFICATIONS_TABLE_NAME: T.notifications,
-      EVENT_BUS_NAME: eventBus.eventBusName,
-    });
-    props.appointmentsTable.grantReadWriteData(rescheduleAppointmentFunction);
-    props.availabilityTable.grantReadWriteData(rescheduleAppointmentFunction);
-    props.waitlistTable.grantReadWriteData(rescheduleAppointmentFunction);
-    props.notificationsTable.grantWriteData(rescheduleAppointmentFunction);
-    eventBus.grantPutEventsTo(rescheduleAppointmentFunction);
-
-    // ---------- Waitlist ----------
-    const joinWaitlistFunction = createFunction('JoinWaitlistFunction', 'join-waitlist', {
-      WAITLIST_TABLE_NAME: T.waitlist,
-      AVAILABILITY_TABLE_NAME: T.availability,
-    });
-    props.waitlistTable.grantReadWriteData(joinWaitlistFunction);
-    props.availabilityTable.grantReadData(joinWaitlistFunction);
-
-    const claimWaitlistOfferFunction = createFunction('ClaimWaitlistOfferFunction', 'claim-waitlist-offer', {
-      WAITLIST_TABLE_NAME: T.waitlist,
-      AVAILABILITY_TABLE_NAME: T.availability,
-      APPOINTMENTS_TABLE_NAME: T.appointments,
-    });
-    props.waitlistTable.grantReadWriteData(claimWaitlistOfferFunction);
-    props.availabilityTable.grantReadWriteData(claimWaitlistOfferFunction);
-    props.appointmentsTable.grantReadWriteData(claimWaitlistOfferFunction);
-
-    // ---------- Medical Notes (the ONLY functions with access to medicalNotesTable) ----------
-    const recordMedicalNoteFunction = createFunction('RecordMedicalNoteFunction', 'record-medical-note', {
       APPOINTMENTS_TABLE_NAME: T.appointments,
       MEDICAL_NOTES_TABLE_NAME: T.medicalNotes,
     });
-    props.appointmentsTable.grantReadData(recordMedicalNoteFunction);
-    props.medicalNotesTable.grantWriteData(recordMedicalNoteFunction);
-
-    const getMedicalNotesFunction = createFunction('GetMedicalNotesFunction', 'get-medical-notes', {
-      USERS_TABLE_NAME: T.users,
-      MEDICAL_NOTES_TABLE_NAME: T.medicalNotes,
-    });
-    props.usersTable.grantReadData(getMedicalNotesFunction);
-    props.medicalNotesTable.grantReadData(getMedicalNotesFunction);
-
-    // ---------- Read APIs used by the frontend ----------
-    const getMeFunction = createFunction('GetMeFunction', 'get-me', {
-      USERS_TABLE_NAME: T.users,
-      HOSPITALS_TABLE_NAME: T.hospitals,
-    });
-    props.usersTable.grantReadData(getMeFunction);
-    props.hospitalsTable.grantReadData(getMeFunction);
-
-    const listDoctorsFunction = createFunction('ListDoctorsFunction', 'list-doctors', {
-      USERS_TABLE_NAME: T.users,
-      HOSPITALS_TABLE_NAME: T.hospitals,
-      AFFILIATIONS_TABLE_NAME: T.affiliations,
-    });
-    props.usersTable.grantReadData(listDoctorsFunction);
-    props.hospitalsTable.grantReadData(listDoctorsFunction);
-    props.affiliationsTable.grantReadData(listDoctorsFunction);
-
-    const myWaitlistFunction = createFunction('MyWaitlistFunction', 'my-waitlist', {
-      WAITLIST_TABLE_NAME: T.waitlist,
-    });
-    props.waitlistTable.grantReadData(myWaitlistFunction);
-
-    const myNotificationsFunction = createFunction('MyNotificationsFunction', 'my-notifications', {
-      NOTIFICATIONS_TABLE_NAME: T.notifications,
-    });
-    props.notificationsTable.grantReadData(myNotificationsFunction);
-
-    const doctorSlotsFunction = createFunction('DoctorSlotsFunction', 'doctor-slots', {
-      USERS_TABLE_NAME: T.users,
-      AVAILABILITY_TABLE_NAME: T.availability,
-    });
-    props.usersTable.grantReadData(doctorSlotsFunction);
-    props.availabilityTable.grantReadData(doctorSlotsFunction);
-
-    const hospitalSlotsFunction = createFunction('HospitalSlotsFunction', 'hospital-slots', {
-      USERS_TABLE_NAME: T.users,
-      AVAILABILITY_TABLE_NAME: T.availability,
-    });
-    props.usersTable.grantReadData(hospitalSlotsFunction);
-    props.availabilityTable.grantReadData(hospitalSlotsFunction);
-
-    // Confirmed sessions nobody checked the patient in for within 2 hours of ending become MISSED.
-    const markMissedAppointmentsFunction = createFunction(
-      'MarkMissedAppointmentsFunction',
-      'mark-missed-appointments',
-      {
-        APPOINTMENTS_TABLE_NAME: T.appointments,
-        NOTIFICATIONS_TABLE_NAME: T.notifications,
-        EVENT_BUS_NAME: eventBus.eventBusName,
-      },
-      { timeoutSeconds: 60 }
-    );
-    props.appointmentsTable.grantReadWriteData(markMissedAppointmentsFunction);
-    props.notificationsTable.grantWriteData(markMissedAppointmentsFunction);
-    eventBus.grantPutEventsTo(markMissedAppointmentsFunction);
-
-    new events.Rule(this, 'MissedAppointmentScheduleRule', {
-      schedule: events.Schedule.rate(cdk.Duration.minutes(15)),
-      targets: [new eventTargets.LambdaFunction(markMissedAppointmentsFunction)],
-    });
-
-    // ---------- Profiles, reports, reviews and removals (no medical notes access) ----------
-    const updateProfileFunction = createFunction('UpdateProfileFunction', 'update-profile', {
-      USERS_TABLE_NAME: T.users,
-      HOSPITALS_TABLE_NAME: T.hospitals,
-    });
-    props.usersTable.grantReadWriteData(updateProfileFunction);
-    props.hospitalsTable.grantReadData(updateProfileFunction);
-
-    const reportUserFunction = createFunction('ReportUserFunction', 'report-user', {
-      USERS_TABLE_NAME: T.users,
-      REPORTS_TABLE_NAME: T.reports,
-    });
-    props.usersTable.grantReadWriteData(reportUserFunction);
-    props.reportsTable.grantWriteData(reportUserFunction);
-
-    const reportedUsersFunction = createFunction('ReportedUsersFunction', 'reported-users', {
-      USERS_TABLE_NAME: T.users,
-    });
-    props.usersTable.grantReadData(reportedUsersFunction);
-
-    // Shared by the two functions that permanently remove accounts: they cancel or free bookings, so they
-    // need the same tables and notification plumbing as cancel-appointment, plus Cognito user deletion.
-    const removalEnv = {
-      USER_POOL_ID: this.userPool.userPoolId,
-      USERS_TABLE_NAME: T.users,
-      HOSPITALS_TABLE_NAME: T.hospitals,
-      AFFILIATIONS_TABLE_NAME: T.affiliations,
-      AVAILABILITY_TABLE_NAME: T.availability,
-      APPOINTMENTS_TABLE_NAME: T.appointments,
-      WAITLIST_TABLE_NAME: T.waitlist,
-      NOTIFICATIONS_TABLE_NAME: T.notifications,
-      EVENT_BUS_NAME: eventBus.eventBusName,
-    };
-    const grantRemoval = (fn: lambda.NodejsFunction) => {
-      props.usersTable.grantReadWriteData(fn);
-      props.hospitalsTable.grantReadWriteData(fn);
-      props.affiliationsTable.grantReadWriteData(fn);
-      props.availabilityTable.grantReadWriteData(fn);
-      props.appointmentsTable.grantReadWriteData(fn);
-      props.waitlistTable.grantReadWriteData(fn);
-      props.notificationsTable.grantWriteData(fn);
-      eventBus.grantPutEventsTo(fn);
-      this.userPool.grant(fn, 'cognito-idp:AdminDeleteUser');
-    };
-
-    const deleteUserFunction = createFunction('DeleteUserFunction', 'delete-user', removalEnv, { timeoutSeconds: 60 });
-    grantRemoval(deleteUserFunction);
-
-    const deleteHospitalFunction = createFunction('DeleteHospitalFunction', 'delete-hospital', removalEnv, {
-      timeoutSeconds: 120,
-    });
-    grantRemoval(deleteHospitalFunction);
-
-    const removeDoctorFunction = createFunction('RemoveDoctorFunction', 'remove-doctor', {
-      USERS_TABLE_NAME: T.users,
-      AFFILIATIONS_TABLE_NAME: T.affiliations,
-      AVAILABILITY_TABLE_NAME: T.availability,
-    });
-    props.usersTable.grantReadData(removeDoctorFunction);
-    props.affiliationsTable.grantReadWriteData(removeDoctorFunction);
-    props.availabilityTable.grantReadWriteData(removeDoctorFunction);
-
-    const createReviewFunction = createFunction('CreateReviewFunction', 'create-review', {
-      USERS_TABLE_NAME: T.users,
-      APPOINTMENTS_TABLE_NAME: T.appointments,
-      REVIEWS_TABLE_NAME: T.reviews,
-    });
-    props.usersTable.grantReadData(createReviewFunction);
-    props.appointmentsTable.grantReadData(createReviewFunction);
-    props.reviewsTable.grantWriteData(createReviewFunction);
-
-    const doctorReviewsFunction = createFunction('DoctorReviewsFunction', 'doctor-reviews', {
-      USERS_TABLE_NAME: T.users,
-      REVIEWS_TABLE_NAME: T.reviews,
-    });
-    props.usersTable.grantReadData(doctorReviewsFunction);
-    props.reviewsTable.grantReadData(doctorReviewsFunction);
-
-    const myReviewsFunction = createFunction('MyReviewsFunction', 'my-reviews', {
-      USERS_TABLE_NAME: T.users,
-      REVIEWS_TABLE_NAME: T.reviews,
-    });
-    props.usersTable.grantReadData(myReviewsFunction);
-    props.reviewsTable.grantReadData(myReviewsFunction);
-
-    // ---------- Staff, statistics, bulk import, user management and password recovery ----------
-    const addStaffFunction = createFunction('AddStaffFunction', 'add-staff', {
-      USER_POOL_ID: this.userPool.userPoolId,
-      USERS_TABLE_NAME: T.users,
-      HOSPITALS_TABLE_NAME: T.hospitals,
-      AFFILIATIONS_TABLE_NAME: T.affiliations,
-    });
-    props.usersTable.grantReadWriteData(addStaffFunction);
-    props.hospitalsTable.grantReadData(addStaffFunction);
-    props.affiliationsTable.grantWriteData(addStaffFunction);
-    this.userPool.grant(addStaffFunction, 'cognito-idp:AdminCreateUser', 'cognito-idp:AdminDeleteUser');
-
-    const listStaffFunction = createFunction('ListStaffFunction', 'list-staff', { USERS_TABLE_NAME: T.users });
-    props.usersTable.grantReadData(listStaffFunction);
-
-    const removeStaffFunction = createFunction('RemoveStaffFunction', 'remove-staff', {
-      USER_POOL_ID: this.userPool.userPoolId,
-      USERS_TABLE_NAME: T.users,
-    });
-    props.usersTable.grantReadWriteData(removeStaffFunction);
-    this.userPool.grant(removeStaffFunction, 'cognito-idp:AdminDeleteUser');
-
-    const hospitalStatsFunction = createFunction('HospitalStatsFunction', 'hospital-stats', {
-      USERS_TABLE_NAME: T.users,
-      APPOINTMENTS_TABLE_NAME: T.appointments,
-    });
-    props.usersTable.grantReadData(hospitalStatsFunction);
-    props.appointmentsTable.grantReadData(hospitalStatsFunction);
-
-    // Up to 50 accounts per request; each needs a Cognito call, so it gets a longer timeout than the default.
-    const bulkCreateUsersFunction = createFunction(
-      'BulkCreateUsersFunction',
-      'bulk-create-users',
-      {
-        USER_POOL_ID: this.userPool.userPoolId,
-        USERS_TABLE_NAME: T.users,
-        HOSPITALS_TABLE_NAME: T.hospitals,
-        AFFILIATIONS_TABLE_NAME: T.affiliations,
-      },
-      { timeoutSeconds: 28 }
-    );
-    props.usersTable.grantReadWriteData(bulkCreateUsersFunction);
-    props.hospitalsTable.grantReadData(bulkCreateUsersFunction);
-    props.affiliationsTable.grantWriteData(bulkCreateUsersFunction);
-    this.userPool.grant(bulkCreateUsersFunction, 'cognito-idp:AdminCreateUser', 'cognito-idp:AdminDeleteUser');
-
-    const listUsersFunction = createFunction('ListUsersFunction', 'list-users', {
-      USERS_TABLE_NAME: T.users,
-      HOSPITALS_TABLE_NAME: T.hospitals,
-    });
-    props.usersTable.grantReadData(listUsersFunction);
-    props.hospitalsTable.grantReadData(listUsersFunction);
-
-    const suspendUserFunction = createFunction('SuspendUserFunction', 'suspend-user', {
-      USER_POOL_ID: this.userPool.userPoolId,
-      USERS_TABLE_NAME: T.users,
-    });
-    props.usersTable.grantReadWriteData(suspendUserFunction);
-    this.userPool.grant(
-      suspendUserFunction,
-      'cognito-idp:AdminDisableUser',
-      'cognito-idp:AdminEnableUser',
-      'cognito-idp:AdminUserGlobalSignOut'
-    );
-
-    const forgotPasswordFunction = createFunction('ForgotPasswordFunction', 'forgot-password', {
-      USER_POOL_CLIENT_ID: this.userPoolClient.userPoolClientId,
-    });
-    const resetPasswordFunction = createFunction('ResetPasswordFunction', 'reset-password', {
-      USER_POOL_CLIENT_ID: this.userPoolClient.userPoolClientId,
-    });
+    props.usersTable.grantReadData(medicalNotesFunction);
+    props.appointmentsTable.grantReadData(medicalNotesFunction);
+    props.medicalNotesTable.grantReadWriteData(medicalNotesFunction);
 
     // ---------- API Gateway (REST API) ----------
     const restApi = new apigateway.RestApi(this, 'MediCueRestApi', {
@@ -780,81 +438,88 @@ export class ApiStack extends cdk.Stack {
     // this stack well below the 500 resources CloudFormation allows.
     const integrate = (fn: lambda.NodejsFunction) => new apigateway.LambdaIntegration(fn, { allowTestInvoke: false });
 
+    // One Lambda serves every route of an area; lambda/<area>.ts picks the handler from "METHOD /path".
+    const route = (
+      resource: apigateway.Resource,
+      part: string,
+      method: 'GET' | 'POST',
+      fn: lambda.NodejsFunction,
+      authed = true
+    ) => resource.addResource(part).addMethod(method, integrate(fn), authed ? cognitoAuth : undefined);
+
     const patients = restApi.root.addResource('patients');
-    patients.addResource('signup').addMethod('POST', integrate(patientSignupFunction));
-    patients.addResource('confirm-signup').addMethod('POST', integrate(confirmSignupFunction));
+    route(patients, 'signup', 'POST', authFunction, false);
+    route(patients, 'confirm-signup', 'POST', authFunction, false);
 
     const auth = restApi.root.addResource('auth');
-    auth.addResource('login').addMethod('POST', integrate(loginFunction));
-    auth.addResource('refresh').addMethod('POST', integrate(authSessionFunction));
-    auth.addResource('logout').addMethod('POST', integrate(authSessionFunction));
-    auth.addResource('new-password').addMethod('POST', integrate(newPasswordFunction));
-    auth.addResource('forgot-password').addMethod('POST', integrate(forgotPasswordFunction));
-    auth.addResource('reset-password').addMethod('POST', integrate(resetPasswordFunction));
+    route(auth, 'login', 'POST', authFunction, false);
+    route(auth, 'refresh', 'POST', authFunction, false);
+    route(auth, 'logout', 'POST', authFunction, false);
+    route(auth, 'new-password', 'POST', authFunction, false);
+    route(auth, 'forgot-password', 'POST', authFunction, false);
+    route(auth, 'reset-password', 'POST', authFunction, false);
 
     const users = restApi.root.addResource('users');
-    users.addResource('me').addMethod('GET', integrate(getMeFunction), cognitoAuth);
-    users.addResource('update-profile').addMethod('POST', integrate(updateProfileFunction), cognitoAuth);
-    users.addResource('report').addMethod('POST', integrate(reportUserFunction), cognitoAuth);
-    users.addResource('reported').addMethod('GET', integrate(reportedUsersFunction), cognitoAuth);
-    users.addResource('delete').addMethod('POST', integrate(deleteUserFunction), cognitoAuth);
-    users.addResource('list').addMethod('GET', integrate(listUsersFunction), cognitoAuth);
-    users.addResource('suspend').addMethod('POST', integrate(suspendUserFunction), cognitoAuth);
-    users.addResource('bulk-create').addMethod('POST', integrate(bulkCreateUsersFunction), cognitoAuth);
+    route(users, 'me', 'GET', usersFunction);
+    route(users, 'update-profile', 'POST', usersFunction);
+    route(users, 'report', 'POST', usersFunction);
+    route(users, 'reported', 'GET', usersFunction);
+    route(users, 'list', 'GET', usersFunction);
+    route(users, 'suspend', 'POST', usersFunction);
+    route(users, 'delete', 'POST', removalsFunction);
+    route(users, 'bulk-create', 'POST', teamFunction);
 
     const hospitals = restApi.root.addResource('hospitals');
-    hospitals.addResource('register').addMethod('POST', integrate(registerHospitalFunction));
-    hospitals.addResource('approved').addMethod('GET', integrate(listApprovedHospitalsFunction));
-    hospitals.addResource('review').addMethod('POST', integrate(reviewHospitalFunction), cognitoAuth);
-    hospitals.addResource('list').addMethod('GET', integrate(listHospitalsFunction), cognitoAuth);
-    hospitals.addResource('delete').addMethod('POST', integrate(deleteHospitalFunction), cognitoAuth);
+    route(hospitals, 'register', 'POST', hospitalsFunction, false);
+    route(hospitals, 'approved', 'GET', hospitalsFunction, false);
+    route(hospitals, 'review', 'POST', hospitalsFunction);
+    route(hospitals, 'list', 'GET', hospitalsFunction);
+    route(hospitals, 'delete', 'POST', removalsFunction);
 
     const doctors = restApi.root.addResource('doctors');
-    doctors.addResource('add').addMethod('POST', integrate(addDoctorFunction), cognitoAuth);
-    doctors.addResource('list').addMethod('GET', integrate(listDoctorsFunction), cognitoAuth);
-    doctors.addResource('remove').addMethod('POST', integrate(removeDoctorFunction), cognitoAuth);
+    route(doctors, 'add', 'POST', teamFunction);
+    route(doctors, 'list', 'GET', teamFunction);
+    route(doctors, 'remove', 'POST', teamFunction);
 
     const staff = restApi.root.addResource('staff');
-    staff.addResource('add').addMethod('POST', integrate(addStaffFunction), cognitoAuth);
-    staff.addResource('list').addMethod('GET', integrate(listStaffFunction), cognitoAuth);
-    staff.addResource('remove').addMethod('POST', integrate(removeStaffFunction), cognitoAuth);
+    route(staff, 'add', 'POST', teamFunction);
+    route(staff, 'list', 'GET', teamFunction);
+    route(staff, 'remove', 'POST', teamFunction);
 
-    const stats = restApi.root.addResource('stats');
-    stats.addResource('hospital').addMethod('GET', integrate(hospitalStatsFunction), cognitoAuth);
+    route(restApi.root.addResource('stats'), 'hospital', 'GET', hospitalsFunction);
 
     const availability = restApi.root.addResource('availability');
-    availability.addResource('propose').addMethod('POST', integrate(proposeSlotFunction), cognitoAuth);
-    availability.addResource('approve').addMethod('POST', integrate(approveSlotFunction), cognitoAuth);
-    availability.addResource('pending').addMethod('GET', integrate(pendingSlotsFunction), cognitoAuth);
-    availability.addResource('mine').addMethod('GET', integrate(doctorSlotsFunction), cognitoAuth);
-    availability.addResource('hospital').addMethod('GET', integrate(hospitalSlotsFunction), cognitoAuth);
-    availability.addResource('browse').addMethod('GET', integrate(browseSlotsFunction));
+    route(availability, 'propose', 'POST', availabilityFunction);
+    route(availability, 'approve', 'POST', availabilityFunction);
+    route(availability, 'pending', 'GET', availabilityFunction);
+    route(availability, 'mine', 'GET', availabilityFunction);
+    route(availability, 'hospital', 'GET', availabilityFunction);
+    route(availability, 'browse', 'GET', availabilityFunction, false);
 
     const appointments = restApi.root.addResource('appointments');
-    appointments.addResource('book').addMethod('POST', integrate(bookAppointmentFunction), cognitoAuth);
-    appointments.addResource('mine').addMethod('GET', integrate(myAppointmentsFunction), cognitoAuth);
-    appointments.addResource('pay').addMethod('POST', integrate(processPaymentFunction), cognitoAuth);
-    appointments.addResource('cancel').addMethod('POST', integrate(cancelAppointmentFunction), cognitoAuth);
-    appointments.addResource('check-in').addMethod('POST', integrate(checkInAppointmentFunction), cognitoAuth);
-    appointments.addResource('complete').addMethod('POST', integrate(completeAppointmentFunction), cognitoAuth);
-    appointments.addResource('reschedule').addMethod('POST', integrate(rescheduleAppointmentFunction), cognitoAuth);
+    route(appointments, 'book', 'POST', appointmentsFunction);
+    route(appointments, 'mine', 'GET', appointmentsFunction);
+    route(appointments, 'pay', 'POST', appointmentsFunction);
+    route(appointments, 'cancel', 'POST', appointmentsFunction);
+    route(appointments, 'check-in', 'POST', appointmentsFunction);
+    route(appointments, 'complete', 'POST', appointmentsFunction);
+    route(appointments, 'reschedule', 'POST', appointmentsFunction);
 
     const waitlist = restApi.root.addResource('waitlist');
-    waitlist.addResource('join').addMethod('POST', integrate(joinWaitlistFunction), cognitoAuth);
-    waitlist.addResource('claim').addMethod('POST', integrate(claimWaitlistOfferFunction), cognitoAuth);
-    waitlist.addResource('mine').addMethod('GET', integrate(myWaitlistFunction), cognitoAuth);
+    route(waitlist, 'join', 'POST', appointmentsFunction);
+    route(waitlist, 'claim', 'POST', appointmentsFunction);
+    route(waitlist, 'mine', 'GET', appointmentsFunction);
 
-    const notifications = restApi.root.addResource('notifications');
-    notifications.addResource('mine').addMethod('GET', integrate(myNotificationsFunction), cognitoAuth);
+    route(restApi.root.addResource('notifications'), 'mine', 'GET', usersFunction);
 
     const reviews = restApi.root.addResource('reviews');
-    reviews.addResource('create').addMethod('POST', integrate(createReviewFunction), cognitoAuth);
-    reviews.addResource('doctor').addMethod('GET', integrate(doctorReviewsFunction), cognitoAuth);
-    reviews.addResource('mine').addMethod('GET', integrate(myReviewsFunction), cognitoAuth);
+    route(reviews, 'create', 'POST', reviewsFunction);
+    route(reviews, 'doctor', 'GET', reviewsFunction);
+    route(reviews, 'mine', 'GET', reviewsFunction);
 
     const medicalNotes = restApi.root.addResource('medical-notes');
-    medicalNotes.addResource('record').addMethod('POST', integrate(recordMedicalNoteFunction), cognitoAuth);
-    medicalNotes.addResource('list').addMethod('GET', integrate(getMedicalNotesFunction), cognitoAuth);
+    route(medicalNotes, 'record', 'POST', medicalNotesFunction);
+    route(medicalNotes, 'list', 'GET', medicalNotesFunction);
 
     new cdk.CfnOutput(this, 'ApiUrl', { value: restApi.url });
     // Needed by scripts/create-platform-admin.ts and by the frontend.

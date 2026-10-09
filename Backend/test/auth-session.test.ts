@@ -13,7 +13,7 @@ const secretJson = jest.fn();
 jest.mock('../lambda/lib/secrets', () => ({ getSecretJson: (...args: unknown[]) => secretJson(...args) }));
 
 // required after ALLOWED_ORIGIN is set: the origin list is read when the module loads
-const { handler: authSession } = require('../lambda/auth-session');
+const { authSession } = require('../lambda/auth');
 const { clearRefreshCookie, readRefreshCookie, refreshCookie } = require('../lambda/lib/http');
 const { sealToken, sessionCookieHeader } = require('../lambda/lib/cookie-seal');
 

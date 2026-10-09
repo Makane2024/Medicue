@@ -24,10 +24,10 @@ jest.mock('@aws-sdk/client-cognito-identity-provider', () => {
   return { ...actual, CognitoIdentityProviderClient: jest.fn(() => ({ send: (...args: unknown[]) => cognitoSend(...args) })) };
 });
 
-import { handler as bulk } from '../lambda/bulk-create-users';
-import { handler as suspend } from '../lambda/suspend-user';
-import { handler as forgot } from '../lambda/forgot-password';
-import { handler as reset } from '../lambda/reset-password';
+import { bulkCreateUsers as bulk } from '../lambda/team';
+import { suspendUser as suspend } from '../lambda/users';
+import { forgotPassword as forgot } from '../lambda/auth';
+import { resetPassword as reset } from '../lambda/auth';
 import { normalizeRole } from '../lambda/lib/bulk';
 import { summarize } from '../lambda/lib/stats';
 

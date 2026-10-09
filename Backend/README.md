@@ -41,7 +41,7 @@ Use the **ID token** as the `Authorization` header for protected routes.
 
 Public: `POST /patients/signup`, `POST /patients/confirm-signup`, `POST /auth/login`, `POST /auth/new-password`, `POST /hospitals/register`, `GET /hospitals/approved`, `GET /availability/browse?hospitalId=&from=&to=&limit=&nextToken=`.
 
-Authenticated: `POST /hospitals/review`, `GET /hospitals/list?status=` (platform admin); `POST /doctors/add`, `POST /availability/propose`, `POST /appointments/record-attendance` (hospital admin); `POST /availability/approve`, `GET /availability/pending`, `POST /medical-notes/record` (doctor); `POST /appointments/book`, `GET /appointments/mine`, `POST /appointments/pay`, `POST /appointments/cancel`, `POST /appointments/reschedule`, `POST /waitlist/join`, `POST /waitlist/claim`, `GET /medical-notes/list`.
+Authenticated: `POST /hospitals/review`, `GET /hospitals/list?status=` (platform admin); `POST /doctors/add`, `POST /availability/propose`, `POST /appointments/check-in` (staff or hospital admin), `POST /appointments/complete` (doctor); `POST /availability/approve`, `GET /availability/pending`, `POST /medical-notes/record` (doctor); `POST /appointments/book`, `GET /appointments/mine`, `POST /appointments/pay`, `POST /appointments/cancel`, `POST /appointments/reschedule`, `POST /waitlist/join`, `POST /waitlist/claim`, `GET /medical-notes/list`.
 
 `POST /availability/propose` takes `{ doctorId, consultationType?, slots: [{ startTime, endTime }] }` with 1 to 5 slots whose exact times the hospital admin chooses. The slots must not overlap, or sit within 10 minutes of each other or of any slot the doctor already has at this hospital (including unanswered proposals); the whole batch is accepted or rejected together and the doctor gets one notification.
 
@@ -57,7 +57,7 @@ Also authenticated: `GET /users/me`, `POST /users/update-profile` (own name, pho
 bin/backend.ts         app entry
 lib/data-stack.ts      DynamoDB tables + S3 bucket
 lib/api-stack.ts       Cognito, EventBridge, SQS, Lambdas, REST API, alarms
-lambda/*.ts            one handler per file
+lambda/<area>.ts        the 11 Lambdas: the area's endpoint handlers plus a "METHOD /path" router
 lambda/lib/            http (CORS, errors), validation, db, scheduling, waitlist, notify, constants, cleanup (cascading removals), profile
 scripts/               one-off operational scripts
 test/                  jest tests

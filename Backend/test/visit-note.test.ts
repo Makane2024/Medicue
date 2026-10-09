@@ -16,8 +16,8 @@ jest.mock('../lambda/lib/db', () => ({
   isTransactionCanceled: () => false,
 }));
 
-import { handler as book } from '../lambda/book-appointment';
-import { handler as mine } from '../lambda/my-appointments';
+import { bookAppointment as book } from '../lambda/appointments';
+import { myAppointments as mine } from '../lambda/appointments';
 
 const MIN = 60_000;
 const slot = (consultationType: 'SPECIALIST' | 'GENERAL') => ({

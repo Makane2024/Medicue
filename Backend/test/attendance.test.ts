@@ -15,9 +15,9 @@ jest.mock('../lambda/lib/db', () => ({
 
 jest.mock('../lambda/lib/notify', () => ({ sendNotification: jest.fn() }));
 
-import { handler as checkIn } from '../lambda/check-in-appointment';
+import { checkInAppointment as checkIn } from '../lambda/appointments';
 import { sendNotification } from '../lambda/lib/notify';
-import { handler as complete } from '../lambda/complete-appointment';
+import { completeAppointment as complete } from '../lambda/appointments';
 
 const MIN = 60_000;
 const at = (offsetMinutes: number) => new Date(Date.now() + offsetMinutes * MIN).toISOString();

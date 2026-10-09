@@ -40,7 +40,7 @@ function policyFor(functionId: string): string {
 describe('IAM', () => {
   it('every function that sends notifications can write the notifications table and put events', () => {
     const senders = functions.filter(([, r]) => r.Properties.Environment.Variables.EVENT_BUS_NAME !== undefined);
-    expect(senders.length).toBeGreaterThan(8);
+    expect(senders.length).toBeGreaterThanOrEqual(5);
     for (const [logicalId] of senders) {
       const functionId = logicalId.replace(/[0-9A-F]{8}$/, '');
       const policy = policyFor(functionId);
@@ -50,8 +50,8 @@ describe('IAM', () => {
     }
   });
 
-  it('only the two medical-note functions can touch the medical notes table', () => {
-    const allowed = ['RecordMedicalNoteFunction', 'GetMedicalNotesFunction'];
+  it('only the medical notes function can touch the medical notes table', () => {
+    const allowed = ['MedicalNotesFunction'];
     const offenders = Object.entries(resources)
       .filter(([, r]) => r.Type === 'AWS::IAM::Policy' && JSON.stringify(r).includes('MedicalNotesTable'))
       .map(([logicalId]) => logicalId)
@@ -82,9 +82,9 @@ describe('Secrets Manager', () => {
     expect(readersOf('SmsProviderSecret')).toEqual(['NotificationWorkerFunction']);
   });
 
-  it('stores the cookie encryption key in a secret that only the three session functions can read', () => {
+  it('stores the cookie encryption key in a secret that only the auth function can read', () => {
     template.hasResourceProperties('AWS::SecretsManager::Secret', { Name: 'medicue/cookie-key' });
-    expect(readersOf('CookieKeySecret')).toEqual(['AuthSessionFunction', 'LoginFunction', 'NewPasswordFunction']);
+    expect(readersOf('CookieKeySecret')).toEqual(['AuthFunction']);
   });
 
   it('keeps key material out of every environment variable', () => {
@@ -96,7 +96,7 @@ describe('Secrets Manager', () => {
 
 describe('Lambda configuration', () => {
   it('sets explicit timeouts, memory and ARM on every function', () => {
-    expect(functions.length).toBeGreaterThanOrEqual(35);
+    expect(functions.length).toBeLessThanOrEqual(20);
     for (const [, r] of functions) {
       expect(r.Properties.Timeout).toBeGreaterThanOrEqual(10);
       expect(r.Properties.MemorySize).toBe(256);
@@ -126,7 +126,7 @@ describe('API', () => {
   });
 
   it('stays well below the 500 resources CloudFormation allows per stack', () => {
-    // 466 when this was written. Past ~480, split the API into two stacks before adding more routes.
+    // Fewer Lambdas than routes keep this far below the limit. Past ~480, split the API into two stacks.
     expect(Object.keys(resources).length).toBeLessThan(485);
   });
 
@@ -199,6 +199,22 @@ describe('frontend contract', () => {
     expect(gatewayResources.length).toBeGreaterThan(10);
     expect(backendRoutes.size).toBeGreaterThan(25);
     expect(frontendRoutes.size).toBeGreaterThan(25);
+  });
+
+  it('every API route is served by a router entry, and every router entry has a route', () => {
+    const groups = ['auth', 'hospitals', 'team', 'users', 'removals', 'availability', 'appointments', 'reviews', 'medical-notes'];
+    const served = groups.flatMap((g) =>
+      [...fs.readFileSync(path.join(__dirname, `../lambda/${g}.ts`), 'utf8').matchAll(/'((?:GET|POST) \/[^']+)'/g)].map((m) => m[1])
+    );
+    expect(served.sort()).toEqual([...backendRoutes].sort());
+  });
+
+  it('every scheduled rule names a job the scheduled-jobs Lambda knows', () => {
+    const known = [...fs.readFileSync(path.join(__dirname, '../lambda/scheduled-jobs.ts'), 'utf8').matchAll(/^ {2}'([a-z-]+)':/gm)].map((m) => m[1]);
+    const rules = Object.values(resources).filter((r) => r.Type === 'AWS::Events::Rule' && r.Properties.ScheduleExpression);
+    expect(rules).toHaveLength(5);
+    const named = rules.map((r) => JSON.parse(r.Properties.Targets[0].Input).job);
+    expect(named.sort()).toEqual(known.sort());
   });
 
   it('every route the frontend calls exists on the backend', () => {

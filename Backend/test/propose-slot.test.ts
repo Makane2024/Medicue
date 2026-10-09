@@ -12,7 +12,7 @@ jest.mock('../lambda/lib/db', () => ({
 }));
 jest.mock('../lambda/lib/notify', () => ({ sendNotification: jest.fn() }));
 
-import { handler } from '../lambda/propose-slot';
+import { proposeSlot as handler } from '../lambda/availability';
 import { sendNotification } from '../lambda/lib/notify';
 
 const MIN = 60_000;
