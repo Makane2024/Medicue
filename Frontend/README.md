@@ -6,13 +6,13 @@ React 19 + Vite + Tailwind v4 (a Figma Make project). It talks to the AWS backen
 
 ```
 pnpm install
-pnpm dev            # mock API, no backend needed (demo accounts on the sign-in screen)
+pnpm dev            # needs VITE_API_URL (see below)
 pnpm typecheck      # strict TypeScript, unused code is an error
 pnpm build
 pnpm format -- src  # Prettier
 ```
 
-To use the real backend, deploy it, then copy `.env.example` to `.env.local` and set `VITE_API_URL` to the
+Deploy the backend first, then copy `.env.example` to `.env.local` and set `VITE_API_URL` to the
 `ApiUrl` stack output. CORS is enabled on the API; restrict it with `cdk deploy -c allowedOrigin=https://your-site`.
 
 ## Structure
@@ -24,8 +24,7 @@ src/
 │   ├── endpoints.ts             typed api.* calls (the only API the screens use)
 │   ├── client.ts · session.ts   HTTP client, bearer token, 401 handling
 │   ├── types.ts · rules.ts      domain types; business rules mirrored from the backend
-│   ├── config.ts · errors.ts    build flag (isMock) and ApiError
-│   └── mock/                    in-browser backend: routes/ (one file per domain), db, seed, helpers, jobs
+│   └── config.ts · errors.ts    build config (VITE_API_URL) and ApiError
 ├── components/
 │   ├── ui/                      design-system kit (Button, Card, Field, Modal, Badge ...)
 │   └── ApiConsole · Toasts · ReportButton
@@ -46,8 +45,7 @@ Rules of thumb: files stay under 500 lines; folders import each other through `@
 
 `src/api` is the only place that knows the HTTP contract.
 
-- `call()` sends the exact requests of `Backend/lib/api-stack.ts` (real API when `VITE_API_URL` is set).
-- The in-browser **mock answers the same routes with the same request and response shapes**, so every screen is written once against the real contract. Only the prototype-only extras listed below differ.
+- `call()` sends the exact requests of `Backend/lib/api-stack.ts` to the API at `VITE_API_URL`.
 - `Backend/test/stacks.test.ts` ("frontend contract") fails if a route the frontend calls does not exist on the API, or a backend route is not used by the frontend.
 
 Rules the UI mirrors from the backend: fees (2000 general / 3000 specialist, set by the slot), 5-minute payment hold, 15-minute waitlist offer, 2-hour reschedule cutoff, 10/90-minute slot buffers, slots of at most 12 h, E.164 phone numbers, password policy (8+ chars, upper, lower, digit).

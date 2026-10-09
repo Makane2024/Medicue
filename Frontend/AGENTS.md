@@ -29,16 +29,15 @@ This is the canonical project structure. Start with task-relevant files below. O
 ## API layer (`src/api`)
 
 - `endpoints.ts` - typed `api.*` calls; routes and payloads must match `../Backend/lib/api-stack.ts`
-- `client.ts` / `session.ts` / `errors.ts` / `config.ts` - HTTP client, token, `ApiError`, build-time flag (`isMock`)
+- `client.ts` / `session.ts` / `errors.ts` / `config.ts` - HTTP client, token, `ApiError`, build-time config (`VITE_API_URL`)
 - `types.ts` / `rules.ts` - domain types, and business rules mirrored from the backend
-- `mock/` - in-browser backend used when `VITE_API_URL` is unset: `routes/` (one file per domain), `db.ts`, `seed.ts`, `helpers.ts`, `jobs.ts`
 
 ## Conventions
 
 - Keep every file under 500 lines; split by responsibility, not by size.
 - One exported component per file, named after the file. Shared pieces go up (`components/`, `features/appointments/`), never sideways between role folders.
 - Import across folders with the `@/` alias and through the `@/api` and `@/components/ui` barrels; use relative imports only inside a folder.
-- Screens never call `call()` directly; add a typed function to `api/endpoints.ts` (and a mock route) instead.
+- Screens never call `call()` directly; add a typed function to `api/endpoints.ts` instead.
 
 ## Dependencies
 

@@ -3,6 +3,7 @@ import {
   RespondToAuthChallengeCommand,
 } from '@aws-sdk/client-cognito-identity-provider';
 import { parseBody, respond, withErrorHandling } from './lib/http';
+import { sessionCookieHeader } from './lib/cookie-seal';
 import { requireEmail, requirePasswordHash, requireString } from './lib/validation';
 
 const cognitoClient = new CognitoIdentityProviderClient({});
@@ -26,7 +27,6 @@ export const handler = withErrorHandling(async (event) => {
   const auth = result.AuthenticationResult;
   if (!auth) return respond(401, { message: 'Password change could not be completed' });
 
-  return respond(200, {
-    idToken: auth.IdToken,
-  });
+  // The refresh token goes into an encrypted HttpOnly cookie, so the page can renew the session without ever seeing it.
+  return respond(200, { idToken: auth.IdToken }, await sessionCookieHeader(auth.RefreshToken, event));
 });

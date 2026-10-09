@@ -1,7 +1,6 @@
 import { useState } from 'react'
 import { Smartphone, X } from 'lucide-react'
-import { api, type Appointment, HOLD_MIN, isMock, paymentSimulation } from '@/api'
-import { runScheduledJobs } from '@/api/mock/jobs'
+import { api, type Appointment, HOLD_MIN, paymentSimulation } from '@/api'
 import { Badge, Button, Card, Countdown } from '@/components/ui'
 import { displayName, fmtFull, fmtTime } from '@/lib/format'
 import { useAction } from '@/lib/hooks'
@@ -50,10 +49,7 @@ export function PaymentSheet({
               ) : (
                 <Countdown
                   until={+new Date(a.createdAt) + HOLD_MIN * 6e4}
-                  onDone={() => {
-                    setExpired(true)
-                    if (isMock) runScheduledJobs()
-                  }}
+                  onDone={() => setExpired(true)}
                 />
               )}
             </div>

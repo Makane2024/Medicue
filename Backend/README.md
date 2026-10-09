@@ -26,9 +26,11 @@ Deploy-time settings: `-c allowedOrigin=https://your-frontend` (default `*`), `-
 
 Doctors are created by a hospital admin, not through signup:
 
-1. `POST /doctors/add` creates the Cognito user with a generated temporary password (letters and digits); Cognito **emails the doctor a link** `<appUrl>/#/first-login?email=…&tp=…` (set `appUrl` at deploy time: `cdk deploy -c appUrl=https://your-frontend`). The frontend opens with both values filled in; the fragment is read once and removed from the address bar. The email also states the temporary password for manual sign-in.
+1. `POST /doctors/add` creates the Cognito user with a generated temporary password (letters and digits); Cognito **emails the doctor a link** `<appUrl>/#/first-login?email=…&tp=…` (`appUrl` is set in `cdk.json` under `context`; override it with `cdk deploy -c appUrl=https://your-frontend`). The frontend opens with both values filled in; the fragment is read once and removed from the address bar. The email also states the temporary password for manual sign-in.
 2. The doctor calls `POST /auth/login` with email and temporary password. The response is `{ "challenge": "NEW_PASSWORD_REQUIRED", "session": "..." }`.
-3. The doctor calls `POST /auth/new-password` with `{ email, newPassword, session }` and receives the `idToken` (only the ID token is returned; access and refresh tokens are never sent to the browser).
+3. The doctor calls `POST /auth/new-password` with `{ email, newPassword, session }` and receives the `idToken` (only the ID token is in the body; the access token is never sent, and the refresh token is set as an HttpOnly cookie that scripts cannot read).
+
+Sessions: `POST /auth/refresh` exchanges that cookie for a new ID token (200 with `{}` when there is no valid session) and `POST /auth/logout` revokes the token and clears the cookie. They need `-c allowedOrigin=https://your-frontend[,http://localhost:5173]` (an exact origin list, credentials enabled); with `*` the cookie cannot work and sessions end after an hour.
 
 Passwords are never sent raw: the frontend derives `Mc1!` + 64 hex characters (PBKDF2-SHA256, salted with the email) and the signup, register, new-password and reset-password routes refuse anything else (`requirePasswordHash`). Only the one-time temporary password of an invitation is sent as is to `POST /auth/login`. `GET /users/me` does not return the caller's own `userId`.
 4. From then on `POST /auth/login` returns tokens directly.
@@ -79,3 +81,5 @@ A brand-new account can run `npx cdk deploy --all` once; the stages only matter 
 ## Secrets
 
 Third-party credentials live in AWS Secrets Manager, not in environment variables or code. `cdk deploy` creates the secret `medicue/sms-provider` (Twilio) with a generated placeholder; set the real values with `aws secretsmanager put-secret-value --secret-id medicue/sms-provider --secret-string '{"provider":"twilio","accountSid":"AC...","authToken":"...","from":"+1..."}'` (later deploys never overwrite them). Only `notification-worker` may read it (`lambda/lib/secrets.ts` caches the value for 5 minutes). While `accountSid` or `from` is empty, SMS keeps going out through SNS as before.
+
+The session cookie is encrypted (AES-256-GCM) with the key in the secret `medicue/cookie-key`, which CDK generates once and only `login`, `new-password` and `auth-session` can read. To rotate it, put the current key into `previousKey` and a new one into `key` (old cookies keep working until they expire); to sign everybody out at once, replace `key` alone. If the key cannot be read, sign-in still works but no cookie is set, so the session lasts one hour.

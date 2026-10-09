@@ -11,7 +11,7 @@ import {
   Type,
   UserRound,
 } from 'lucide-react'
-import { isMock, type User } from '@/api'
+import type { User } from '@/api'
 import { Avatar, Button, Card, Segmented, Switch } from '@/components/ui'
 import { ROLE_LABEL } from '@/features/shell/nav'
 import { cx } from '@/lib/classNames'
@@ -187,10 +187,6 @@ export function SettingsPage({ user, go, onLogout }: { user: User; go: (view: st
 
           <Block icon={<Info className="size-5" />} title="About">
             <dl className="space-y-1.5 text-xs">
-              <div className="flex justify-between">
-                <dt className="text-muted">Data</dt>
-                <dd className="font-semibold">{isMock ? 'Demo data in this browser' : 'Live MediCue account'}</dd>
-              </div>
               <div className="flex justify-between">
                 <dt className="text-muted">Signed in as</dt>
                 <dd className="font-semibold">{ROLE_LABEL[user.role]}</dd>

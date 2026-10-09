@@ -17,6 +17,7 @@
     ]
   },
   "context": {
+    "appUrl": "https://main.d1jni7toqa76r4.amplifyapp.com",
     "@aws-cdk-containers/ecs-service-extensions:enableDefaultLogDriver": true,
     "@aws-cdk/aws-apigateway:authorizerChangeDeploymentLogicalId": true,
     "@aws-cdk/aws-apigateway:disableCloudWatchRole": true,

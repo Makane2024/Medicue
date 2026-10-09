@@ -70,6 +70,8 @@ export const api = {
     return r.idToken as string
   },
   // the backend does not send the caller's own id; `userId` is '' for the signed-in user
+  // the session cookie is HttpOnly: these only ask the server to use or end it
+  logout: () => call('POST', '/auth/logout', {}),
   me: async (): Promise<User> => ({ ...(await call<User>('GET', '/users/me')), userId: '' }),
 
   approvedHospitals: async () => (await call<{ hospitals: Hospital[] }>('GET', '/hospitals/approved')).hospitals,

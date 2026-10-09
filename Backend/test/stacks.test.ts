@@ -67,13 +67,24 @@ describe('IAM', () => {
 });
 
 describe('Secrets Manager', () => {
+  // the functions whose role may read the given secret, found through the secret's ARN in their policy
+  const readersOf = (secretLogicalPrefix: string) =>
+    functions
+      .filter(([logicalId]) => {
+        const policy = policyFor(logicalId.replace(/[0-9A-F]{8}$/, ''));
+        return policy.includes('secretsmanager:GetSecretValue') && policy.includes(secretLogicalPrefix);
+      })
+      .map(([logicalId]) => logicalId.replace(/[0-9A-F]{8}$/, ''))
+      .sort();
+
   it('stores the SMS service credentials in a secret that only the notification worker can read', () => {
     template.hasResourceProperties('AWS::SecretsManager::Secret', { Name: 'medicue/sms-provider' });
-    const readers = functions.filter(([logicalId]) =>
-      policyFor(logicalId.replace(/[0-9A-F]{8}$/, '')).includes('secretsmanager:GetSecretValue')
-    );
-    expect(readers.length).toBe(1);
-    expect(readers[0][1].Properties.Environment.Variables.SMS_SECRET_ARN).toBeDefined();
+    expect(readersOf('SmsProviderSecret')).toEqual(['NotificationWorkerFunction']);
+  });
+
+  it('stores the cookie encryption key in a secret that only the three session functions can read', () => {
+    template.hasResourceProperties('AWS::SecretsManager::Secret', { Name: 'medicue/cookie-key' });
+    expect(readersOf('CookieKeySecret')).toEqual(['AuthSessionFunction', 'LoginFunction', 'NewPasswordFunction']);
   });
 
   it('keeps key material out of every environment variable', () => {
@@ -177,7 +188,9 @@ describe('frontend contract', () => {
 
   // Routes the typed client in Frontend/src/api/endpoints.ts calls against the real API
   const source = fs.readFileSync(path.join(__dirname, '../../Frontend/src/api/endpoints.ts'), 'utf8');
-  const apiSection = source.slice(source.indexOf('export const api = {'));
+  // (the session renewal call lives in client.ts)
+  const clientSource = fs.readFileSync(path.join(__dirname, '../../Frontend/src/api/client.ts'), 'utf8');
+  const apiSection = source.slice(source.indexOf('export const api = {')) + clientSource;
   const frontendRoutes = new Set(
     [...apiSection.matchAll(/'(GET|POST)',\s*[`']([^`'?$]+)/g)].map((m) => `${m[1]} ${m[2]}`)
   );

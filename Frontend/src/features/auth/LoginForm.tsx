@@ -1,20 +1,10 @@
 import { ArrowRight } from 'lucide-react'
-import { isMock, type Role } from '@/api'
 import heroImage from '@/assets/hero-doctors.png'
 import { Button, Field } from '@/components/ui'
 import type { AuthForm } from './useAuthForm'
 
-// Accounts seeded in the mock backend (password "demo"). Only offered when running without a real API.
 // Where each doctor's face sits in the photo, so three small round crops can be cut from it (background-position).
 const DOCTOR_CROPS = ['5% 12%', '44% 24%', '91% 12%']
-
-const DEMO_ACCOUNTS: [Role, string, string][] = [
-  ['PATIENT', 'sarah@medicue.cm', 'Patient'],
-  ['DOCTOR', 'm.patel@medicue.cm', 'Doctor'],
-  ['HOSPITAL_ADMIN', 'admin@lagunemed.cm', 'Hospital admin'],
-  ['STAFF', 'staff@lagunemed.cm', 'Staff'],
-  ['PLATFORM_ADMIN', 'platform@medicue.cm', 'Platform admin'],
-]
 
 interface Props {
   form: AuthForm
@@ -68,23 +58,6 @@ export function LoginForm({ form, busy, signIn, onForgot }: Props) {
         </button>
       </div>
 
-      {isMock && (
-        <div className="pt-6">
-          <p className="mb-3 text-xs font-semibold uppercase tracking-wider text-muted">Demo accounts · mock backend</p>
-          <div className="grid grid-cols-2 gap-2">
-            {DEMO_ACCOUNTS.map(([role, email, label]) => (
-              <button
-                key={role}
-                onClick={() => signIn(email, 'demo')}
-                className="rounded-2xl bg-mist p-3 text-left transition hover:bg-brand-soft/60"
-              >
-                <div className="text-sm font-semibold">{label}</div>
-                <div className="truncate text-xs text-muted">{email}</div>
-              </button>
-            ))}
-          </div>
-        </div>
-      )}
     </div>
   )
 }

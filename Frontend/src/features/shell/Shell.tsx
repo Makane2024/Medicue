@@ -21,7 +21,21 @@ export function Shell({ user: signedIn, onLogout }: { user: User; onLogout: () =
     }
   }, [])
   const nav = navFor(user.role)
-  const [view, setView] = useState(nav[0].key)
+  // the page the user was on survives a refresh or a return visit (per account)
+  const viewKey = `medicue.view.${user.email}`
+  const [view, setViewState] = useState(() => {
+    try {
+      const saved = localStorage.getItem(viewKey)
+      if (saved && nav.some((n) => n.key === saved)) return saved
+    } catch {}
+    return nav[0].key
+  })
+  const setView = (next: string) => {
+    setViewState(next)
+    try {
+      localStorage.setItem(viewKey, next)
+    } catch {}
+  }
   const dir = useDirectory(user)
 
   // a hospital admin can sign in while the hospital is still pending review, but nothing works until approval

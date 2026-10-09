@@ -37,7 +37,16 @@ export class ApiStack extends cdk.Stack {
     super(scope, id, props);
 
     // Optional deploy-time settings: `cdk deploy -c allowedOrigin=https://app.example.com -c allowPaymentSimulation=false`
+    // One origin or a comma-separated list. A real list (not "*") is needed for the refresh-token cookie: the browser
+    // only sends credentials to an API that names the frontend's exact origin.
     const allowedOrigin: string = this.node.tryGetContext('allowedOrigin') ?? '*';
+    const allowedOrigins = allowedOrigin.split(',').map((o) => o.trim()).filter(Boolean);
+    const credentialedCors = !allowedOrigins.includes('*');
+    if (!credentialedCors) {
+      cdk.Annotations.of(this).addWarning(
+        'allowedOrigin is "*": the refresh-token cookie cannot work, so sessions end after an hour. Deploy with -c allowedOrigin=https://your-frontend'
+      );
+    }
     const allowPaymentSimulation = String(this.node.tryGetContext('allowPaymentSimulation') ?? 'true');
     // Where the frontend is served; the doctor invitation email links to it. `-c appUrl=https://app.example.com`
     const appUrl: string = String(this.node.tryGetContext('appUrl') ?? 'http://localhost:5173').replace(/\/+$/, '');
@@ -285,17 +294,37 @@ export class ApiStack extends cdk.Stack {
       USER_POOL_CLIENT_ID: this.userPoolClient.userPoolClientId,
     });
 
+    // Key that encrypts the session cookie (see lambda/lib/cookie-seal.ts). CDK generates it once and never overwrites it;
+    // to rotate, put the old value in `previousKey` and a new one in `key`, or replace `key` alone to sign everyone out.
+    const cookieKeySecret = new secretsmanager.Secret(this, 'CookieKeySecret', {
+      secretName: 'medicue/cookie-key',
+      description: 'Encrypts the refresh-token session cookie',
+      generateSecretString: { secretStringTemplate: '{}', generateStringKey: 'key', excludePunctuation: true, passwordLength: 64 },
+      removalPolicy: cdk.RemovalPolicy.RETAIN,
+    });
+
     const loginFunction = createFunction('LoginFunction', 'login', {
       USER_POOL_CLIENT_ID: this.userPoolClient.userPoolClientId,
       USER_POOL_ID: this.userPool.userPoolId,
       // Lets accounts that still have a raw password sign in once and move to the hashed one (see lambda/login.ts).
       ALLOW_LEGACY_LOGIN: String(this.node.tryGetContext('allowLegacyLogin') ?? 'true'),
+      COOKIE_SECRET_ARN: cookieKeySecret.secretArn,
     });
     this.userPool.grant(loginFunction, 'cognito-idp:AdminSetUserPassword');
+    cookieKeySecret.grantRead(loginFunction);
+
+    // Renews the session from the refresh-token cookie (POST /auth/refresh) and ends it (POST /auth/logout).
+    const authSessionFunction = createFunction('AuthSessionFunction', 'auth-session', {
+      USER_POOL_CLIENT_ID: this.userPoolClient.userPoolClientId,
+      COOKIE_SECRET_ARN: cookieKeySecret.secretArn,
+    });
+    cookieKeySecret.grantRead(authSessionFunction);
 
     const newPasswordFunction = createFunction('NewPasswordFunction', 'new-password', {
       USER_POOL_CLIENT_ID: this.userPoolClient.userPoolClientId,
+      COOKIE_SECRET_ARN: cookieKeySecret.secretArn,
     });
+    cookieKeySecret.grantRead(newPasswordFunction);
 
     // ---------- Hospitals (no medical notes access) ----------
     const registerHospitalFunction = createFunction('RegisterHospitalFunction', 'register-hospital', {
@@ -715,7 +744,8 @@ export class ApiStack extends cdk.Stack {
     const restApi = new apigateway.RestApi(this, 'MediCueRestApi', {
       deployOptions: { stageName: 'prod', throttlingRateLimit: 50, throttlingBurstLimit: 100 },
       defaultCorsPreflightOptions: {
-        allowOrigins: allowedOrigin === '*' ? apigateway.Cors.ALL_ORIGINS : [allowedOrigin],
+        allowOrigins: credentialedCors ? allowedOrigins : apigateway.Cors.ALL_ORIGINS,
+        allowCredentials: credentialedCors,
         allowMethods: apigateway.Cors.ALL_METHODS,
         allowHeaders: ['Content-Type', 'Authorization'],
       },
@@ -724,8 +754,10 @@ export class ApiStack extends cdk.Stack {
     // Gateway-generated errors (401 from the authorizer, 429 throttling, 5xx) bypass the Lambdas,
     // so they need the CORS header too or browsers hide the real status from the frontend.
     const corsErrorHeaders = {
-      'Access-Control-Allow-Origin': `'${allowedOrigin}'`,
+      // a gateway response cannot echo the caller's origin, so it names the first (primary) one
+      'Access-Control-Allow-Origin': `'${allowedOrigins[0]}'`,
       'Access-Control-Allow-Headers': "'Content-Type,Authorization'",
+      ...(credentialedCors ? { 'Access-Control-Allow-Credentials': "'true'" } : {}),
     };
     restApi.addGatewayResponse('Default4xx', {
       type: apigateway.ResponseType.DEFAULT_4XX,
@@ -754,6 +786,8 @@ export class ApiStack extends cdk.Stack {
 
     const auth = restApi.root.addResource('auth');
     auth.addResource('login').addMethod('POST', integrate(loginFunction));
+    auth.addResource('refresh').addMethod('POST', integrate(authSessionFunction));
+    auth.addResource('logout').addMethod('POST', integrate(authSessionFunction));
     auth.addResource('new-password').addMethod('POST', integrate(newPasswordFunction));
     auth.addResource('forgot-password').addMethod('POST', integrate(forgotPasswordFunction));
     auth.addResource('reset-password').addMethod('POST', integrate(resetPasswordFunction));

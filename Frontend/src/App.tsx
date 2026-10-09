@@ -1,20 +1,21 @@
 import { useEffect, useState } from 'react'
-import { isMock, onAuthExpired, runScheduledJobs, setSession, type User } from '@/api'
+import { api, onAuthExpired, renewSession, setSession, type User } from '@/api'
 import { Toasts } from '@/components/Toasts'
 import { AuthPage } from '@/features/auth/AuthPage'
+import { enterApp } from '@/features/auth/useSignIn'
 import { Shell } from '@/features/shell/Shell'
 import { toast } from '@/lib/toast'
 
-const SCHEDULED_JOBS_INTERVAL_MS = 60_000
-
 export default function App() {
   const [user, setUser] = useState<User | null>(null)
+  // a page load asks the server to renew the session from the HttpOnly cookie instead of showing the sign-in page
+  const [restoring, setRestoring] = useState(true)
 
-  // the mock has no server, so it runs the scheduled jobs (hold expiry, offer expiry, missed sessions) itself
   useEffect(() => {
-    if (!isMock) return
-    const timer = setInterval(runScheduledJobs, SCHEDULED_JOBS_INTERVAL_MS)
-    return () => clearInterval(timer)
+    renewSession()
+      .then((idToken) => (idToken ? enterApp(idToken).then(setUser) : undefined))
+      .catch(() => setSession(null))
+      .finally(() => setRestoring(false))
   }, [])
 
   // an expired or revoked token (HTTP 401) sends the user back to sign in
@@ -29,6 +30,10 @@ export default function App() {
   )
 
   const signOut = () => {
+    try {
+      if (user) localStorage.removeItem(`medicue.view.${user.email}`) // the next sign-in starts at the home page
+    } catch {}
+    api.logout().catch(() => undefined) // revokes the refresh token and clears the cookie
     setSession(null)
     setUser(null)
   }
@@ -36,7 +41,13 @@ export default function App() {
   return (
     <>
       <Toasts />
-      {user ? <Shell key={user.email} user={user} onLogout={signOut} /> : <AuthPage onLogin={setUser} />}
+      {restoring ? (
+        <div className="grid min-h-screen place-items-center text-sm text-muted">Loading…</div>
+      ) : user ? (
+        <Shell key={user.email} user={user} onLogout={signOut} />
+      ) : (
+        <AuthPage onLogin={setUser} />
+      )}
     </>
   )
 }

@@ -1,7 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Clock, DoorOpen, RefreshCcw, Search, UserCheck } from 'lucide-react'
-import { api, type Appointment, CHECK_IN_EARLY_H, isMock } from '@/api'
-import { runScheduledJobs } from '@/api/mock/jobs'
+import { api, type Appointment, CHECK_IN_EARLY_H } from '@/api'
 import { Avatar, Badge, Button, Card, Empty, SectionHead } from '@/components/ui'
 import { apptRef, displayName, fmtTime, sameDay } from '@/lib/format'
 import { useAction, useLoad } from '@/lib/hooks'
@@ -14,10 +13,7 @@ const REFRESH_MS = 30_000
  * appointment becomes ARRIVED and the doctor sees them waiting. The doctor completes the session afterwards.
  */
 export function CheckIn({ dir }: { dir: Dir }) {
-  const [appts, reload] = useLoad(() => {
-    if (isMock) runScheduledJobs()
-    return loadAppointments()
-  })
+  const [appts, reload] = useLoad(loadAppointments)
   const { busy, run } = useAction()
   const [query, setQuery] = useState('')
 

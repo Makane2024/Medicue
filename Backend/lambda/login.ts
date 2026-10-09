@@ -4,6 +4,7 @@ import {
   InitiateAuthCommand,
 } from '@aws-sdk/client-cognito-identity-provider';
 import { HttpError, parseBody, respond, withErrorHandling } from './lib/http';
+import { sessionCookieHeader } from './lib/cookie-seal';
 import { requireEmail, requirePasswordHash, requireString } from './lib/validation';
 
 const cognitoClient = new CognitoIdentityProviderClient({});
@@ -64,9 +65,7 @@ export const handler = withErrorHandling(async (event) => {
     }
   }
 
-  // Only the ID token goes to the browser: it is the one the API's authorizer checks. The access and refresh
-  // tokens are never needed by the client, so they are not handed out.
-  return respond(200, {
-    idToken: auth.IdToken,
-  });
+  // Only the ID token goes to the page: it is the one the API's authorizer checks. The access token is never needed.
+  // The refresh token goes into an encrypted HttpOnly cookie, so the page can renew the session without ever seeing it.
+  return respond(200, { idToken: auth.IdToken }, await sessionCookieHeader(auth.RefreshToken, event));
 });

@@ -1,13 +1,11 @@
 import { useEffect, useState } from 'react'
 import { Building2, Heart, Stethoscope } from 'lucide-react'
-import { api, type Appointment, isMock, OFFER_MIN, prettySpecialty, type WaitEntry } from '@/api'
-import { demo, runScheduledJobs } from '@/api/mock/jobs'
+import { api, type Appointment, OFFER_MIN, prettySpecialty, type WaitEntry } from '@/api'
 import { Badge, Button, Card, Countdown, Empty, SectionHead, Select } from '@/components/ui'
 import { PaymentSheet } from '@/features/appointments/PaymentSheet'
 import { cx } from '@/lib/classNames'
 import { displayName, fmtFull } from '@/lib/format'
 import { useAction, useLoad } from '@/lib/hooks'
-import { toast } from '@/lib/toast'
 import { asUser, type Dir } from '@/state/directory'
 
 export function Waitlist({ dir }: { dir: Dir }) {
@@ -26,7 +24,6 @@ export function Waitlist({ dir }: { dir: Dir }) {
         : specialties
   useEffect(() => {
     const t = setInterval(() => {
-      if (isMock) runScheduledJobs()
       reload()
     }, 20000)
     return () => clearInterval(t)
@@ -87,19 +84,6 @@ export function Waitlist({ dir }: { dir: Dir }) {
         >
           Join waitlist
         </Button>
-        {isMock && (
-          <button
-            className="mt-3 w-full text-xs font-semibold text-muted hover:text-brand"
-            onClick={() => {
-              if (demo.forceOffer()) {
-                toast('Demo: a slot was released and offered', true)
-                reload()
-              } else toast('Join a waitlist first', false)
-            }}
-          >
-            Demo: simulate a released slot
-          </button>
-        )}
       </Card>
       <div className="space-y-3">
         <SectionHead title="Your entries" />
