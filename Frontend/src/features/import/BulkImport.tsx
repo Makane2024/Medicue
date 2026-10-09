@@ -1,7 +1,7 @@
 import { useRef, useState } from 'react'
 import { CheckCircle2, CircleAlert, Download, FileSpreadsheet, UploadCloud } from 'lucide-react'
 import { api, type BulkRowResult, MAX_BULK_USERS } from '@/api'
-import { Badge, Button, Card } from '@/components/ui'
+import { Badge, Button, Card, HScroll } from '@/components/ui'
 import { cx } from '@/lib/classNames'
 import { downloadFile } from '@/lib/xlsx'
 import { toast } from '@/lib/toast'
@@ -244,7 +244,7 @@ export function BulkImport({ caller, hospitalName }: { caller: Caller; hospitalN
 
         {phase !== 'pick' && (
           <Card className="overflow-hidden p-0">
-            <div className="max-h-[32rem] overflow-auto">
+            <HScroll className="max-h-[32rem] overflow-y-auto">
               <table className="w-full min-w-[40rem] text-left text-sm">
                 <thead className="sticky top-0 bg-surface text-[11px] uppercase tracking-wider text-muted">
                   <tr>
@@ -298,7 +298,7 @@ export function BulkImport({ caller, hospitalName }: { caller: Caller; hospitalN
                   })}
                 </tbody>
               </table>
-            </div>
+            </HScroll>
             {rows.length > PREVIEW_ROWS && (
               <div className="border-t border-ink/5 px-4 py-3 text-xs text-muted">
                 Showing the first {PREVIEW_ROWS} of {rows.length} rows. All of them are imported.

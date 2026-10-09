@@ -45,7 +45,7 @@ export function DayStrip({
             title={closed ? 'Not available for booking' : undefined}
             onClick={() => setDay(x)}
             className={cx(
-              'flex flex-col items-center gap-1 rounded-full py-3 text-sm transition',
+              'flex flex-col items-center gap-1 rounded-2xl py-3 text-sm transition',
               closed
                 ? 'cursor-not-allowed text-muted opacity-35'
                 : on

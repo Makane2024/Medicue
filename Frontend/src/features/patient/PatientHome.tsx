@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { Building2, Search, Sparkles } from 'lucide-react'
 import { api, type ConsultationType, GP_ID, HOLD_MIN, type Slot, type User } from '@/api'
-import { ArrowButton, Avatar, Card, CountUp, Empty, SectionHead } from '@/components/ui'
+import { ArrowButton, Avatar, Card, CountUp, Empty, HScroll, SectionHead } from '@/components/ui'
 import { cx } from '@/lib/classNames'
 import { displayName, fmtFull } from '@/lib/format'
 import { useAction, useLoad } from '@/lib/hooks'
@@ -90,12 +90,12 @@ export function PatientHome({ dir, go }: { dir: Dir; go: (v: string) => void }) 
               </button>
             ))}
           </div>
-          <div className="flex h-14 items-center gap-2 rounded-full bg-surface pl-5 pr-3">
+          <div className="flex h-14 min-w-0 items-center gap-2 rounded-full bg-surface pl-5 pr-3">
             <Building2 className="size-[18px] text-muted" />
             <select
               value={hospitalId}
               onChange={(e) => setHospitalId(e.target.value)}
-              className="h-full bg-transparent text-sm font-semibold outline-none"
+              className="h-full min-w-0 flex-1 truncate bg-transparent text-sm font-semibold outline-none"
             >
               {dir.hospitals.map((h) => (
                 <option key={h.hospitalId} value={h.hospitalId}>
@@ -129,7 +129,7 @@ export function PatientHome({ dir, go }: { dir: Dir; go: (v: string) => void }) 
                   className="h-full flex-1 bg-transparent text-sm outline-none placeholder:text-muted"
                 />
               </div>
-              <div className="flex gap-2 overflow-x-auto pb-1">
+              <HScroll className="flex gap-2 pb-1">
                 {specs.map((s) => (
                   <button
                     key={s}
@@ -142,7 +142,7 @@ export function PatientHome({ dir, go }: { dir: Dir; go: (v: string) => void }) 
                     {s}
                   </button>
                 ))}
-              </div>
+              </HScroll>
               <div id="booking" className="scroll-mt-6">
                 <SectionHead
                   title="Specialists"

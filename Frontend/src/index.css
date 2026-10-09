@@ -244,3 +244,26 @@ body {
 .animate-spin-slow {
   animation: spin-slow 18s linear infinite;
 }
+
+/* A grid without explicit columns sizes its one column to the widest content, which pushes cards past the screen edge
+   on phones. This gives it a column that can shrink; any grid-cols-* utility (layer utilities) still wins. */
+@layer components {
+  .grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* Horizontal scrollers (see components/ui/HScroll.tsx): no visible scrollbar, drag with the mouse, wheel moves sideways */
+.no-scrollbar {
+  scrollbar-width: none;
+}
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+[data-hscroll='scrollable'] {
+  cursor: grab;
+}
+[data-hscroll='dragging'] {
+  cursor: grabbing;
+  user-select: none;
+}
