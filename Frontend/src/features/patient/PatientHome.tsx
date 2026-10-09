@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { Building2, Search, Sparkles } from 'lucide-react'
-import { api, type ConsultationType, HOLD_MIN, type Slot, type User } from '@/api'
+import { api, type ConsultationType, GP_ID, HOLD_MIN, type Slot, type User } from '@/api'
 import { ArrowButton, Avatar, Card, CountUp, Empty, SectionHead } from '@/components/ui'
 import { cx } from '@/lib/classNames'
 import { displayName, fmtFull } from '@/lib/format'
@@ -33,7 +33,14 @@ export function PatientHome({ dir, go }: { dir: Dir; go: (v: string) => void }) 
   const specialistSlots = (slots ?? []).filter(
     (s) => s.consultationType === 'SPECIALIST' && !isWeekend(new Date(s.startTime)),
   )
-  const doctorIds = [...new Set(specialistSlots.map((s) => s.doctorId))]
+  // every specialist of the hospital is listed, with or without open slots (those with slots come first)
+  const slotCount = (id: string) => specialistSlots.filter((s) => s.doctorId === id).length
+  const doctorIds = [
+    ...new Set([
+      ...dir.doctors.filter((d) => d.hospitalId === hospitalId && d.specialtyId !== GP_ID).map((d) => d.doctorId),
+      ...specialistSlots.map((s) => s.doctorId),
+    ]),
+  ].sort((a, b) => Number(slotCount(b) > 0) - Number(slotCount(a) > 0))
   const specs = ['All', ...new Set(doctorIds.map((id) => dir.user(id)?.specialty).filter((s): s is string => !!s))]
   const list = doctorIds
     .map((id) => dir.user(id))
@@ -139,7 +146,7 @@ export function PatientHome({ dir, go }: { dir: Dir; go: (v: string) => void }) 
               <div id="booking" className="scroll-mt-6">
                 <SectionHead
                   title="Specialists"
-                  aside={<span className="text-xs text-muted">{list.length} with open slots</span>}
+                  aside={<span className="text-xs text-muted">{list.length} at this hospital</span>}
                 />
                 <div className="grid gap-3 sm:grid-cols-2">
                   {list.map((u) => {
@@ -153,8 +160,8 @@ export function PatientHome({ dir, go }: { dir: Dir; go: (v: string) => void }) 
                         <div className="min-w-0 flex-1">
                           <div className="truncate font-bold">{displayName(u)}</div>
                           <div className="text-xs text-muted">{u.specialty}</div>
-                          <div className="mt-1 text-[11px] font-semibold text-brand">
-                            {n.length} slots · next {fmtFull(n[0].startTime)}
+                          <div className={cx('mt-1 text-[11px] font-semibold', n.length ? 'text-brand' : 'text-muted')}>
+                            {n.length ? `${n.length} slots · next ${fmtFull(n[0].startTime)}` : 'No open slots yet'}
                           </div>
                         </div>
                         <ArrowButton onClick={() => setDoctor(u.userId)} />
@@ -164,10 +171,7 @@ export function PatientHome({ dir, go }: { dir: Dir; go: (v: string) => void }) 
                   {slots && !list.length && (
                     <div className="sm:col-span-2">
                       <Empty>
-                        No open specialist slots match.{' '}
-                        <button className="font-semibold text-brand" onClick={() => go('waitlist')}>
-                          Join the waitlist →
-                        </button>
+                        {doctorIds.length ? 'No specialist matches your search.' : 'No specialists at this hospital yet.'}
                       </Empty>
                     </div>
                   )}
