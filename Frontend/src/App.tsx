@@ -1,6 +1,5 @@
 import { useEffect, useState } from 'react'
 import { isMock, onAuthExpired, runScheduledJobs, setSession, type User } from '@/api'
-import { ApiConsole } from '@/components/ApiConsole'
 import { Toasts } from '@/components/Toasts'
 import { AuthPage } from '@/features/auth/AuthPage'
 import { Shell } from '@/features/shell/Shell'
@@ -38,7 +37,6 @@ export default function App() {
     <>
       <Toasts />
       {user ? <Shell key={user.email} user={user} onLogout={signOut} /> : <AuthPage onLogin={setUser} />}
-      <ApiConsole />
     </>
   )
 }

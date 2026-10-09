@@ -4,16 +4,6 @@ import { BASE } from './config'
 import { ApiError } from './errors'
 import { mockRequest, prepareMock } from './mock/index'
 import { getToken } from './session'
-import type { LogEntry } from './types'
-
-let listeners: ((l: LogEntry) => void)[] = []
-
-export const onLog = (fn: (l: LogEntry) => void) => {
-  listeners.push(fn)
-  return () => {
-    listeners = listeners.filter((x) => x !== fn)
-  }
-}
 
 let expiredListeners: (() => void)[] = []
 
@@ -26,8 +16,6 @@ export const onAuthExpired = (fn: () => void) => {
 
 export async function call<T = any>(method: 'GET' | 'POST', path: string, body?: any): Promise<T> {
   const token = getToken()
-  const log = (status: number) =>
-    listeners.forEach((fn) => fn({ method, path: path.split('?')[0], status, at: Date.now() }))
   if (BASE) {
     let res: Response
     try {
@@ -37,10 +25,8 @@ export async function call<T = any>(method: 'GET' | 'POST', path: string, body?:
         body: body ? JSON.stringify(body) : undefined,
       })
     } catch {
-      log(0)
       throw new ApiError(0, 'Cannot reach the server. Check your connection.')
     }
-    log(res.status)
     const data = await res.json().catch(() => ({}))
     if (res.status === 401 && token) expiredListeners.forEach((fn) => fn())
     if (!res.ok)
@@ -51,13 +37,6 @@ export async function call<T = any>(method: 'GET' | 'POST', path: string, body?:
     return data
   }
   await new Promise((r) => setTimeout(r, 220))
-  try {
-    await prepareMock()
-    const out = mockRequest(method, path, body ?? {})
-    log(200)
-    return JSON.parse(JSON.stringify(out)) as T
-  } catch (e: any) {
-    log(e.status ?? 500)
-    throw e
-  }
+  await prepareMock()
+  return JSON.parse(JSON.stringify(mockRequest(method, path, body ?? {}))) as T
 }

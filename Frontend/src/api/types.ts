@@ -180,10 +180,3 @@ export interface Notice {
 }
 
 export type LoginResult = { kind: 'tokens'; idToken: string } | { kind: 'challenge'; session: string; message: string }
-
-export interface LogEntry {
-  method: string
-  path: string
-  status: number
-  at: number
-}
